@@ -18,11 +18,14 @@ def test_mcp_disabled_by_default(app: Application) -> None:
 
 def test_enabling_mcp_wires_routes_and_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     application = Application()
+    # host-app config wins over package defaults, and MUST exist before
+    # register(): route wiring happens there (boot runs too late for routes)
+    application.make("config").set(
+        "ai",
+        {"mcp": {"enabled": True, "tools": ["sample_mcp_tools"], "path": "/mcp"}},
+    )
     provider = AiServiceProvider(application)
     provider.register()
-    ai_config = application.make("config").get("ai")
-    ai_config["mcp"]["enabled"] = True
-    ai_config["mcp"]["tools"] = ["sample_mcp_tools"]  # tests dir is on sys.path under pytest
     provider.boot()
     try:
         assert any(str(p).endswith("arvel_ai/routes.py") for p in application.route_files)

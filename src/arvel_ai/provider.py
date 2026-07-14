@@ -18,14 +18,15 @@ class AiServiceProvider(ServiceProvider):
         self.merge_config_from(DEFAULTS, "ai")
         self.app.singleton("ai", lambda c: AiManager(self.app))
 
-    def boot(self) -> None:
-        self.commands(cli)
-
-        # MCP server: opt-in via config. Importing the tool modules runs their
-        # @mcp_tool registrations; the route file serves /mcp + the RFC 9728
-        # metadata document.
+        # MCP server: opt-in via config. This lives in register() DELIBERATELY:
+        # route files load right after provider registration, while the async
+        # provider boot loop runs later (ASGI lifespan) — a boot()-time
+        # load_routes_from is too late for a package.
         config = self.app.make("config")
         if config.get("ai.mcp.enabled", False):
             for module in config.get("ai.mcp.tools", []) or []:
                 import_module(str(module))
             self.load_routes_from(str(Path(__file__).parent / "routes.py"))
+
+    def boot(self) -> None:
+        self.commands(cli)

@@ -7,6 +7,7 @@ assert on recorded requests. It is also this package's own red-green harness.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from arvel_ai.contracts import (
     ChatDelta,
@@ -71,9 +72,12 @@ class FakeAiDriver:
     async def embed_texts(self, texts: list[str], model: str | None = None) -> EmbedResponse:
         return await self.embed(EmbedRequest(texts=texts, model=model))
 
-    async def structured(self, schema: type, messages: object, **kwargs: object) -> object:
+    async def structured(self, schema: type, messages: object, **kwargs: Any) -> object:
         request = ChatRequest(
-            messages=[Message(role="user", content=str(messages))], response_schema=schema
+            messages=[Message(role="user", content=str(messages))],
+            response_schema=schema,
+            model=kwargs.get("model"),
+            system=kwargs.get("system"),
         )
         response = await self.chat(request)
         return response.structured(schema)

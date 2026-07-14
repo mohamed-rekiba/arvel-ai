@@ -13,7 +13,9 @@ from arvel import Route
 from arvel.http.response import Response
 from arvel.kernel.globals import app
 
-from .mcp import McpAuthError, McpServer, registry
+# absolute import: the framework loads route files by PATH (no package context),
+# so a relative import here breaks under load_routes_from
+from arvel_ai.mcp import McpAuthError, McpServer, registry
 
 
 def _server() -> McpServer:
@@ -28,7 +30,7 @@ def _server() -> McpServer:
 async def mcp_endpoint(request: Any) -> Response:
     server = _server()
     try:
-        server.authenticate(request.headers)
+        server.authenticate({"authorization": request.header("authorization") or ""})
     except McpAuthError as exc:
         headers = {"WWW-Authenticate": exc.www_authenticate} if exc.www_authenticate else {}
         return Response(
