@@ -10,6 +10,7 @@ from arvel.kernel import ServiceProvider
 from .commands import cli
 from .config import DEFAULTS
 from .manager import AiManager
+from .workflows.manager import WorkflowManager
 
 
 class AiServiceProvider(ServiceProvider):
@@ -17,6 +18,7 @@ class AiServiceProvider(ServiceProvider):
         # Package config defaults — the host app's own values win on conflict.
         self.merge_config_from(DEFAULTS, "ai")
         self.app.singleton("ai", lambda c: AiManager(self.app))
+        self.app.singleton("ai.workflows", lambda c: WorkflowManager(self.app))
 
         # MCP server: opt-in via config. This lives in register() DELIBERATELY:
         # route files load right after provider registration, while the async
@@ -30,3 +32,10 @@ class AiServiceProvider(ServiceProvider):
 
     def boot(self) -> None:
         self.commands(cli)
+
+        # Register the AI gateway as a health-checkable, drained-at-shutdown
+        # resource (DR-0039) — it appears in the resource-startup log and /health.
+        from .resource import AiResource
+
+        critical = bool(self.app.make("config").get("ai.critical", False))
+        self.app.resources.register(AiResource(self.app.make("ai"), critical=critical))

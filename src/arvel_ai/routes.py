@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from arvel import Route
+from arvel import Route, config
 from arvel.http.response import Response
-from arvel.kernel.globals import app
 
 # absolute import: the framework loads route files by PATH (no package context),
 # so a relative import here breaks under load_routes_from
@@ -19,11 +18,10 @@ from arvel_ai.mcp import McpAuthError, McpServer, registry
 
 
 def _server() -> McpServer:
-    config = app("config")
     return McpServer(
         registry=registry,
-        config=config.get("ai.mcp", {}) or {},
-        server_name=str(config.get("app.name", "arvel-app")),
+        config=config("ai.mcp", {}) or {},
+        server_name=str(config("app.name", "arvel-app")),
     )
 
 
@@ -46,7 +44,7 @@ async def resource_metadata(request: Any) -> dict[str, Any]:
     return _server().protected_resource_metadata()
 
 
-Route.post(str(app("config").get("ai.mcp.path", "/mcp")), mcp_endpoint, name="ai.mcp")
+Route.post(str(config("ai.mcp.path", "/mcp")), mcp_endpoint, name="ai.mcp")
 Route.get(
     "/.well-known/oauth-protected-resource", resource_metadata, name="ai.mcp.metadata"
 )

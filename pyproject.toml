@@ -16,6 +16,7 @@ arvel = { path = "../arvel", editable = true }
 [project.optional-dependencies]
 litellm = ["litellm"]
 httpx = ["httpx"]
+temporal = ["temporalio"]
 
 # Installing this package auto-registers the provider — the host app edits nothing.
 [project.entry-points."arvel.providers"]
@@ -43,7 +44,7 @@ strict = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["litellm.*", "jwt.*"]
+module = ["litellm.*", "jwt.*", "temporalio.*"]
 ignore_missing_imports = true
 
 [tool.importlinter]
@@ -60,9 +61,10 @@ include_external_packages = true
 name = "heavy engines stay out of the import path"
 type = "forbidden"
 source_modules = ["arvel_ai"]
-forbidden_modules = ["litellm", "httpx"]
+forbidden_modules = ["litellm", "httpx", "temporalio"]
 # the ONLY sanctioned edges: each engine inside its own driver module, lazily
 ignore_imports = [
     "arvel_ai.drivers.litellm -> litellm",
     "arvel_ai.drivers.openai_compatible -> httpx",
+    "arvel_ai.workflows.drivers.temporal -> temporalio",
 ]

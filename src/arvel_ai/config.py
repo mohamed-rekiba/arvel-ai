@@ -38,6 +38,18 @@ DEFAULTS: dict[str, Any] = {
     },
     # opt-in: attach the provider-native payload to ChatResponse.raw
     "include_raw": False,
+    # ---- durable workflows ----
+    "workflows": {
+        # "queue" (default, no new infra) | "temporal" (uv add 'arvel-ai[temporal]') | "fake"
+        "default": "queue",
+        "drivers": {
+            "temporal": {
+                "target": "localhost:7233",  # Temporal frontend address
+                "namespace": "default",
+                "task_queue": "arvel-ai",
+            },
+        },
+    },
     # ---- MCP server: expose @mcp_tool functions to MCP clients ----
     "mcp": {
         "enabled": False,  # off by default — enabling is a deliberate act
