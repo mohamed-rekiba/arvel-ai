@@ -4,12 +4,18 @@ version = "0.1.0"
 description = "An arvel ecosystem package."
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["arvel"]
+dependencies = ["arvel", "msgspec"]
+
+# Dev pin: the local framework checkout, until an arvel release ships the
+# package-authoring support (Manager.extra_package). Remove at first release.
+[tool.uv.sources]
+arvel = { path = "../arvel", editable = true }
 
 # Each heavy driver engine gets an extra — apps install only what they use, and
 # MissingExtraError points at the fix: uv add 'arvel-ai[<extra>]'.
 [project.optional-dependencies]
-# redis = ["redis"]
+litellm = ["litellm"]
+httpx = ["httpx"]
 
 # Installing this package auto-registers the provider — the host app edits nothing.
 [project.entry-points."arvel.providers"]
@@ -23,10 +29,11 @@ build-backend = "hatchling.build"
 packages = ["src/arvel_ai"]
 
 [dependency-groups]
-dev = ["pytest", "ruff", "mypy", "import-linter"]
+dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "import-linter", "httpx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
@@ -35,6 +42,10 @@ line-length = 100
 strict = true
 mypy_path = "src"
 
+[[tool.mypy.overrides]]
+module = "litellm.*"
+ignore_missing_imports = true
+
 [tool.importlinter]
 root_package = "arvel_ai"
 include_external_packages = true
@@ -42,8 +53,16 @@ include_external_packages = true
 # The light-import discipline, enforced in CI (same rule arvel core lives by):
 # heavy engines never appear on the module import path — drivers lazy-import
 # them inside the method that uses them. List each engine you add here.
+# The anti-corruption layer, enforced: no engine type ever crosses into the
+# public surface — litellm/httpx exist only inside their own driver modules,
+# lazily imported (DR-0041).
 [[tool.importlinter.contracts]]
 name = "heavy engines stay out of the import path"
 type = "forbidden"
 source_modules = ["arvel_ai"]
-forbidden_modules = ["httpx"]
+forbidden_modules = ["litellm", "httpx"]
+# the ONLY sanctioned edges: each engine inside its own driver module, lazily
+ignore_imports = [
+    "arvel_ai.drivers.litellm -> litellm",
+    "arvel_ai.drivers.openai_compatible -> httpx",
+]

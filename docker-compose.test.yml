@@ -1,0 +1,18 @@
+# Integration test environment (DR-0043: real services, not mocks).
+#
+#   docker compose -f docker-compose.test.yml up -d
+#   AI_INTEGRATION_BASE_URL=http://localhost:4000 uv run pytest tests/test_integration_endpoint.py
+#
+# The LiteLLM proxy is a REAL OpenAI-compatible server; point it at any upstream
+# you have a key for (env passthrough below), or at a local model server.
+# Keycloak joins this file for the MCP OIDC integration tests (W3).
+services:
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports: ["4000:4000"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./tests/litellm-proxy.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]

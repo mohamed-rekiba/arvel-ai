@@ -12,7 +12,7 @@ import pytest
 
 from arvel.kernel import Application
 
-from arvel_ai import Ai
+from arvel_ai import AI
 from arvel_ai.provider import AiServiceProvider
 
 
@@ -23,4 +23,4 @@ def app() -> Iterator[Application]:
     provider.register()
     provider.boot()
     yield application
-    Ai.clear_swapped()
+    AI.clear_swapped()
