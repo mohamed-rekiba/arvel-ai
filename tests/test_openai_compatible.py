@@ -166,3 +166,41 @@ async def test_rate_limit_carries_retry_after() -> None:
         await driver.chat(ChatRequest(messages=[Message(role="user", content="x")]))
     assert exc.value.retry_after == 2.5
     assert exc.value.retryable
+
+
+async def test_retry_after_http_date_does_not_escape_taxonomy() -> None:
+    driver = driver_with(
+        lambda request: httpx.Response(
+            429, text="slow", headers={"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"}
+        )
+    )
+    with pytest.raises(AiRateLimited) as exc:  # not a raw ValueError
+        await driver.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+    assert exc.value.retry_after is None
+
+
+async def test_stream_transport_error_maps_to_taxonomy() -> None:
+    from arvel_ai.contracts import AiProviderError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection reset")
+
+    driver = driver_with(handler)
+    with pytest.raises(AiProviderError):  # not a raw httpx.ConnectError leaking out
+        async for _ in driver.stream(ChatRequest(messages=[Message(role="user", content="x")])):
+            pass
+
+
+async def test_stream_skips_malformed_sse_chunk() -> None:
+    sse = (
+        'data: {"model":"m","choices":[{"delta":{"content":"a"}}]}\n\n'
+        "data: {not json\n\n"
+        'data: {"model":"m","choices":[{"delta":{"content":"b"},"finish_reason":"stop"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+    driver = driver_with(
+        lambda request: httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
+    )
+    events = [e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))]
+    assert isinstance(events[-1], StreamEnd)
+    assert events[-1].response.text == "ab"  # the bad chunk was skipped, not fatal

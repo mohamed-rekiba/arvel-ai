@@ -35,6 +35,16 @@ from arvel_ai.contracts import (
 from ._openai_format import parse_openai_response, to_openai_payload
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    # Retry-After may be seconds or an HTTP-date; we only surface the numeric form
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
 class OpenAICompatibleDriver:
     supports_embeddings = True
 
@@ -87,19 +97,25 @@ class OpenAICompatibleDriver:
         tool_calls: dict[int, dict[str, Any]] = {}
         finish = "stop"
         model = ""
+        import httpx
+
         async with self._httpx() as client:
             try:
                 async with client.stream("POST", "/chat/completions", json=payload) as resp:
                     if resp.status_code >= 400:
                         await resp.aread()
-                        self._raise_for_status(resp.status_code, resp.text)
+                        retry_after = resp.headers.get("retry-after")
+                        self._raise_for_status(resp.status_code, resp.text, retry_after)
                     async for line in resp.aiter_lines():
                         if not line.startswith("data:"):
                             continue
                         data = line[len("data:") :].strip()
                         if data == "[DONE]":
                             break
-                        chunk = json.loads(data)
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue  # skip a partial/keepalive chunk rather than crash the stream
                         model = chunk.get("model", model)
                         choice = (chunk.get("choices") or [{}])[0]
                         finish = choice.get("finish_reason") or finish
@@ -115,8 +131,12 @@ class OpenAICompatibleDriver:
                             fn = tc.get("function") or {}
                             slot["name"] = fn.get("name") or slot["name"]
                             slot["arguments"] += fn.get("arguments") or ""
-            except TimeoutError as exc:
+            except httpx.TimeoutException as exc:
                 raise AiTimeout(str(exc)) from exc
+            except httpx.HTTPError as exc:
+                # a transport failure must not leak the engine type across the
+                # public surface (DR-0041) — map to the taxonomy like _post does
+                raise AiProviderError(str(exc)) from exc
         content: list[Any] = [Text(text="".join(text_parts))] if text_parts else []
         for slot in tool_calls.values():
             content.append(
@@ -171,7 +191,7 @@ class OpenAICompatibleDriver:
         if status in (401, 403):
             raise AiAuthError(detail)
         if status == 429:
-            raise AiRateLimited(detail, retry_after=float(retry_after) if retry_after else None)
+            raise AiRateLimited(detail, retry_after=_parse_retry_after(retry_after))
         if status >= 500:
             raise AiProviderError(detail)
         raise AiInvalidRequest(detail)

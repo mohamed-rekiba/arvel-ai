@@ -60,6 +60,9 @@ class ToolRegistry:
             properties: dict[str, Any] = {}
             required: list[str] = []
             for param in inspect.signature(fn, eval_str=True).parameters.values():
+                # ponytail: v1 tool args are scalars; an unmapped annotation
+                # (list[str], unannotated) falls back to "string" — add a
+                # JSON-Schema type here when a tool needs non-scalar args
                 json_type = _JSON_TYPES.get(param.annotation, "string")
                 properties[param.name] = {"type": json_type}
                 if param.default is inspect.Parameter.empty:
@@ -174,6 +177,10 @@ class McpServer:
         issuer = self._auth.get("issuer")
         if not issuer:
             raise self._challenge("oidc auth is not configured (set ai.mcp.auth.issuer)")
+        if not self._auth.get("audience") and not self.config.get("public_url"):
+            # audience would degrade to a bare path — refuse rather than validate
+            # against a weak/foot-gun aud
+            raise self._challenge("oidc auth needs public_url (or an explicit auth.audience)")
         try:
             import jwt as pyjwt  # arvel's jwt extra
         except ImportError as exc:  # pragma: no cover
@@ -188,6 +195,9 @@ class McpServer:
                 algorithms=["RS256", "ES256"],
                 issuer=issuer,
                 audience=audience,  # RFC 8707 audience binding — non-negotiable
+                # require the claims we validate — a token minted without exp
+                # would otherwise never expire
+                options={"require": ["exp", "iss", "aud"]},
             )
         except Exception as exc:
             raise self._challenge(f"token rejected: {type(exc).__name__}") from exc

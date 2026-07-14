@@ -25,7 +25,7 @@ from .contracts import (
     StreamEnd,
     ToolDef,
 )
-from .events import AiEmbedding, AiRequestSending, AiResponseReceived
+from .events import AiEmbedding, AiRequestFailed, AiRequestSending, AiResponseReceived
 
 MessagesInput = str | list[Message] | ChatRequest
 
@@ -123,7 +123,11 @@ class AiManager(Manager):
         request = self._build_request(messages, **kwargs)
         await self._dispatch(AiRequestSending(self.default_driver(), request))
         with span("ai.chat", kind="client", attributes=self._span_attributes(request)) as current:
-            response = await self._driver().chat(request)
+            try:
+                response = await self._driver().chat(request)
+            except Exception as exc:
+                await self._dispatch(AiRequestFailed(self.default_driver(), request, exc))
+                raise
             if current is not None:
                 current.set_attribute("ai.input_tokens", response.usage.input_tokens)
                 current.set_attribute("ai.output_tokens", response.usage.output_tokens)

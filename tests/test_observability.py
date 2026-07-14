@@ -51,6 +51,25 @@ async def test_stream_dispatches_response_at_stream_end(eventful_app: Applicatio
     assert len(captured) == 1
 
 
+async def test_chat_failure_dispatches_terminal_event(eventful_app: Application) -> None:
+    from arvel_ai.contracts import AiProviderError
+    from arvel_ai.events import AiRequestFailed
+
+    captured: list[object] = []
+    eventful_app.make("events").listen(AiRequestFailed, captured.append)
+
+    manager = eventful_app.make("ai")
+
+    async def boom(request: object) -> object:
+        raise AiProviderError("upstream down")
+
+    manager.driver().chat = boom  # type: ignore[method-assign]
+    with pytest.raises(AiProviderError):
+        await manager.chat("hello")
+    assert len(captured) == 1
+    assert isinstance(captured[0], AiRequestFailed)
+
+
 async def test_chat_works_without_events_binding(app: Application) -> None:
     """A bare app (no events dispatcher) must not break the gateway."""
     app.make("config").get("ai")["default"] = "fake"
