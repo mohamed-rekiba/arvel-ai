@@ -3,14 +3,13 @@
 #   docker compose -f docker-compose.test.yml up -d
 #   AI_TEMPORAL_TARGET=localhost:7233 uv run pytest tests/test_workflow_temporal.py -q
 #
-# A real Temporal server (frontend on :7233). The workflow integration test
-# starts an in-process Temporal worker against it and drives a real workflow
-# through start -> signal -> complete. The AI gateway needs NO Docker — litellm
-# is the SDK client; its live checks hit a real provider directly
-# (tests/test_live_providers.py).
+# A real Temporal dev server (frontend on :7233, in-memory persistence). The
+# workflow integration test starts an in-process Temporal worker against it and
+# drives a real workflow through start -> signal -> complete. The AI gateway
+# needs NO Docker — litellm is the SDK client; its live checks hit a real
+# provider directly (tests/test_live_providers.py).
 services:
   temporal:
-    image: temporalio/auto-setup:1.25.2
+    image: temporalio/temporal:1.5.1
+    command: server start-dev --ip 0.0.0.0 --namespace default
     ports: ["7233:7233"]
-    environment:
-      - DB=sqlite

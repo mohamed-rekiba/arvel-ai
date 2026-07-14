@@ -25,15 +25,9 @@ pytestmark = pytest.mark.skipif(
     not TARGET, reason="AI_TEMPORAL_TARGET not set (start docker-compose.test.yml)"
 )
 
-
-@pytest.fixture()
-async def worker_ctx():  # type: ignore[no-untyped-def]
-    """Run a real Temporal worker against the server for the duration of a test."""
+# Temporal requires workflow classes to be module-level (globally name-referenceable).
+if TARGET:
     from temporalio import workflow as t_workflow
-    from temporalio.client import Client
-    from temporalio.worker import Worker
-
-    task_queue = f"arvel-ai-test-{uuid.uuid4().hex[:8]}"
 
     @t_workflow.defn(name="gate_wf")
     class GateWorkflow:
@@ -46,32 +40,38 @@ async def worker_ctx():  # type: ignore[no-untyped-def]
             return "yes" if self._approved else "no"
 
         @t_workflow.signal
-        def approved(self, value: bool) -> None:
+        def approved(self, value: bool) -> None:  # noqa: FBT001
             self._approved = value
 
+
+@pytest.fixture()
+async def task_queue():  # type: ignore[no-untyped-def]
+    """Run a real Temporal worker against the server for the test's duration."""
+    from temporalio.client import Client
+    from temporalio.worker import Worker
+
+    queue = f"arvel-ai-test-{uuid.uuid4().hex[:8]}"
     client = await Client.connect(TARGET, namespace="default")
-    worker = Worker(client, task_queue=task_queue, workflows=[GateWorkflow])
+    worker = Worker(client, task_queue=queue, workflows=[GateWorkflow])
     task = asyncio.create_task(worker.run())
     try:
-        yield task_queue
+        yield queue
     finally:
         task.cancel()
 
 
-async def test_real_workflow_start_signal_complete(worker_ctx) -> None:  # type: ignore[no-untyped-def]
-    task_queue = worker_ctx
+async def test_real_workflow_start_signal_complete(task_queue: str) -> None:
     driver = TemporalWorkflowDriver(target=TARGET, task_queue=task_queue)
 
     handle = await driver.start("gate_wf", (), {})
     assert isinstance(handle, WorkflowHandle)
 
-    # the workflow is durably suspended on wait_condition until the signal lands
+    # durably suspended on wait_condition until the signal lands
     status = await driver.status(handle.id)
     assert status.state == "running"
 
     await driver.signal(handle.id, "approved", True)
 
-    # poll for completion (real durable execution)
     for _ in range(50):
         status = await driver.status(handle.id)
         if status.state == "completed":
