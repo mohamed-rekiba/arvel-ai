@@ -43,7 +43,7 @@ strict = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = "litellm.*"
+module = ["litellm.*", "jwt.*"]
 ignore_missing_imports = true
 
 [tool.importlinter]

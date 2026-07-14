@@ -1,11 +1,9 @@
-"""AiServiceProvider — auto-registered via the ``arvel.providers`` entry point.
-
-Every integration verb a package can use appears below; the inert ones are
-commented out. Uncomment a verb to activate that contribution; delete what you
-don't need (README.md has the keep/delete guide).
-"""
+"""AiServiceProvider — auto-registered via the ``arvel.providers`` entry point."""
 
 from __future__ import annotations
+
+from importlib import import_module
+from pathlib import Path
 
 from arvel.kernel import ServiceProvider
 
@@ -21,28 +19,13 @@ class AiServiceProvider(ServiceProvider):
         self.app.singleton("ai", lambda c: AiManager(self.app))
 
     def boot(self) -> None:
-        # CLI: adds `arvel ai:hello` to the host app's console.
         self.commands(cli)
 
-        # ---- optional contributions (uncomment to activate, delete if unused) ----
-        # from pathlib import Path
-        # _here = Path(__file__).parent
-        #
-        # HTTP routes this package serves (see routes.py):
-        # self.load_routes_from(str(_here / "routes.py"))
-        #
-        # Migrations the host app runs alongside its own:
-        # self.load_migrations_from(str(_here / "migrations"))
-        #
-        # Namespaced views, rendered as "ai::welcome":
-        # self.load_views_from(str(_here / "views"), "ai")
-        #
-        # Namespaced translations, looked up as "ai::messages.hello":
-        # self.load_translations_from(str(_here / "lang"), "ai")
-        #
-        # Files the host app can copy out and own via `arvel vendor:publish`:
-        # self.publishes({str(_here / "config.py"): "config/ai.py"}, tag="config")
-
-    # Defer this provider — zero boot cost until the first app.make("ai"):
-    # def provides(self) -> list[type | str]:
-    #     return ["ai"]
+        # MCP server: opt-in via config. Importing the tool modules runs their
+        # @mcp_tool registrations; the route file serves /mcp + the RFC 9728
+        # metadata document.
+        config = self.app.make("config")
+        if config.get("ai.mcp.enabled", False):
+            for module in config.get("ai.mcp.tools", []) or []:
+                import_module(str(module))
+            self.load_routes_from(str(Path(__file__).parent / "routes.py"))

@@ -38,4 +38,19 @@ DEFAULTS: dict[str, Any] = {
     },
     # opt-in: attach the provider-native payload to ChatResponse.raw
     "include_raw": False,
+    # ---- MCP server: expose @mcp_tool functions to MCP clients ----
+    "mcp": {
+        "enabled": False,  # off by default — enabling is a deliberate act
+        "path": "/mcp",
+        "public_url": None,  # the server's canonical https URL (required when enabled)
+        # modules imported at boot so their @mcp_tool registrations run:
+        "tools": [],  # e.g. ["app.mcp_tools"]
+        "auth": {
+            "mode": "token",  # "token" (static bearer) | "oidc" (issuer JWT)
+            "token_env": "MCP_TOKEN",  # NAME of the env var holding the token
+            "issuer": None,  # oidc: the authorization server (e.g. a Keycloak realm URL)
+            "jwks_uri": None,  # oidc: defaults to <issuer>/protocol/openid-connect/certs
+            "audience": None,  # oidc: defaults to public_url + path (RFC 8707 binding)
+        },
+    },
 }
