@@ -22,8 +22,10 @@ from .contracts import (
     EmbedRequest,
     EmbedResponse,
     Message,
+    StreamEnd,
     ToolDef,
 )
+from .events import AiEmbedding, AiRequestSending, AiResponseReceived
 
 MessagesInput = str | list[Message] | ChatRequest
 
@@ -103,22 +105,60 @@ class AiManager(Manager):
     def _driver(self) -> AiDriver:
         return cast(AiDriver, self.driver())
 
-    async def chat(self, messages: MessagesInput, **kwargs: Any) -> ChatResponse:
-        return await self._driver().chat(self._build_request(messages, **kwargs))
+    # -- observability (arvel.telemetry span is a no-op when tracing is off) ----
 
-    def stream(self, messages: MessagesInput, **kwargs: Any) -> AsyncIterator[ChatDelta]:
-        return self._driver().stream(self._build_request(messages, **kwargs))
+    async def _dispatch(self, event: Any) -> None:
+        if self.app is not None and self.app.bound("events"):
+            await self.app.make("events").dispatch(event)
+
+    def _span_attributes(self, request: ChatRequest) -> dict[str, Any]:
+        return {
+            "ai.driver": self.default_driver(),
+            "ai.model": request.model or "",
+        }
+
+    async def chat(self, messages: MessagesInput, **kwargs: Any) -> ChatResponse:
+        from arvel.telemetry import span
+
+        request = self._build_request(messages, **kwargs)
+        await self._dispatch(AiRequestSending(self.default_driver(), request))
+        with span("ai.chat", kind="client", attributes=self._span_attributes(request)) as current:
+            response = await self._driver().chat(request)
+            if current is not None:
+                current.set_attribute("ai.input_tokens", response.usage.input_tokens)
+                current.set_attribute("ai.output_tokens", response.usage.output_tokens)
+        await self._dispatch(AiResponseReceived(self.default_driver(), request, response))
+        return response
+
+    async def stream(self, messages: MessagesInput, **kwargs: Any) -> AsyncIterator[ChatDelta]:
+        from arvel.telemetry import span
+
+        request = self._build_request(messages, **kwargs)
+        await self._dispatch(AiRequestSending(self.default_driver(), request))
+        with span("ai.stream", kind="client", attributes=self._span_attributes(request)):
+            async for delta in self._driver().stream(request):
+                if isinstance(delta, StreamEnd):
+                    await self._dispatch(
+                        AiResponseReceived(self.default_driver(), request, delta.response)
+                    )
+                yield delta
 
     async def structured(self, schema: type, messages: MessagesInput, **kwargs: Any) -> Any:
-        request = self._build_request(messages, response_schema=schema, **kwargs)
-        response = await self._driver().chat(request)
+        response = await self.chat(messages, response_schema=schema, **kwargs)
         return response.structured(schema)
 
     async def embed(self, texts: list[str], model: str | None = None) -> EmbedResponse:
+        from arvel.telemetry import span
+
         driver = self._driver()
         if not getattr(driver, "supports_embeddings", False):
             raise AiCapabilityError(
                 f"driver {self.default_driver()!r} has no embeddings support - "
                 "configure a driver that does (e.g. litellm/openai_compatible)"
             )
-        return await driver.embed(EmbedRequest(texts=texts, model=self.resolve_model(model)))
+        request = EmbedRequest(texts=texts, model=self.resolve_model(model))
+        await self._dispatch(AiEmbedding(self.default_driver(), request))
+        with span(
+            "ai.embed", kind="client", attributes={"ai.driver": self.default_driver()}
+        ):
+            return await driver.embed(request)
