@@ -291,6 +291,23 @@ async def test_health_probes_models_and_reports_real_status() -> None:
     assert (await driver_with(boom).health()).status is HealthStatus.FAILED
 
 
+async def test_health_falls_back_to_chat_when_models_rejects_auth() -> None:
+    from arvel.contracts import HealthStatus
+
+    # mirrors Anthropic's OpenAI-compat endpoint: GET /models 401s even with a valid key (it
+    # wants x-api-key), but /chat/completions works — health must verify on the real path.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(401, text="use x-api-key")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+        )
+
+    result = await driver_with(handler).health()
+    assert result.status is HealthStatus.OK
+    assert "chat" in (result.detail or "")
+
+
 async def test_health_degraded_when_no_base_url() -> None:
     from arvel.contracts import HealthStatus
 

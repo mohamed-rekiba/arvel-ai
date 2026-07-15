@@ -95,10 +95,13 @@ class OpenAICompatibleDriver:
         await self._http.aclose()
 
     async def health(self) -> HealthResult:
-        """A real reachability + auth probe (DR-0039): GET /models, the OpenAI-compatible
-        liveness route. A missing/wrong key comes back 401/403 -> FAILED, an unreachable or
-        slow gateway -> FAILED; only a genuine 2xx is OK. The AI resource is non-critical, so a
-        failure degrades boot rather than aborting it — but it no longer reports a false OK."""
+        """A real reachability + auth probe (DR-0039). Tries the cheap OpenAI liveness route
+        (GET /models) first — free, and enough for OpenAI/LiteLLM/vLLM/Ollama. If that doesn't
+        cleanly succeed it falls back to a 1-token chat on the actual /chat/completions path,
+        because some gateways (Anthropic's OpenAI-compatible endpoint) reject the /models route's
+        auth even with a valid key. A bad/missing key is 401/403 -> FAILED, an unreachable or slow
+        gateway -> FAILED; only a genuine success is OK. Non-critical: a failure degrades boot
+        rather than aborting it — but it no longer reports a false OK."""
         if not self.base_url:
             return HealthResult(HealthStatus.DEGRADED, detail="not configured (AI_GATEWAY_URL unset)")
         try:
@@ -107,11 +110,33 @@ class OpenAICompatibleDriver:
             return HealthResult(HealthStatus.FAILED, detail=f"timeout: {exc}")
         except TransportFailed as exc:
             return HealthResult(HealthStatus.FAILED, detail=f"unreachable: {exc}")
+        if resp.successful():
+            return HealthResult(HealthStatus.OK, detail="/models reachable")
+        return await self._probe_chat()  # /models inconclusive — verify on the real path
+
+    async def _probe_chat(self) -> HealthResult:
+        """Fallback health probe: a max_tokens=1 completion on the endpoint the driver actually
+        uses, so the auth path matches. Costs ~1 token, only when /models didn't already answer."""
+        if not self.model:
+            return HealthResult(HealthStatus.DEGRADED, detail="reachable, but no model set to verify")
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+        }
+        try:
+            resp = await self._client().timeout(_HEALTH_TIMEOUT).post("/chat/completions", json=payload)
+        except RequestTimedOut as exc:
+            return HealthResult(HealthStatus.FAILED, detail=f"timeout: {exc}")
+        except TransportFailed as exc:
+            return HealthResult(HealthStatus.FAILED, detail=f"unreachable: {exc}")
         if resp.status() in (401, 403):
             return HealthResult(HealthStatus.FAILED, detail=f"auth rejected (HTTP {resp.status()})")
         if resp.failed():
-            return HealthResult(HealthStatus.DEGRADED, detail=f"reachable, HTTP {resp.status()} on /models")
-        return HealthResult(HealthStatus.OK, detail="/models reachable")
+            return HealthResult(
+                HealthStatus.DEGRADED, detail=f"reachable, HTTP {resp.status()} on /chat/completions"
+            )
+        return HealthResult(HealthStatus.OK, detail="chat reachable")
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         payload = to_openai_payload(request, self.model)
