@@ -14,7 +14,7 @@ jobs:
         # add the oldest arvel you support to catch compat breaks:
         # arvel-version: ["", "arvel==<min-supported>"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
