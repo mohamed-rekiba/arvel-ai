@@ -1,8 +1,9 @@
 """Temporal driver against a REAL Temporal server (DR-0043 + constraint 3:
 real service in Docker, never a mock).
 
-    docker compose -f docker-compose.test.yml up -d
-    AI_TEMPORAL_TARGET=localhost:7233 uv run pytest tests/test_workflow_temporal.py -q
+testcontainers spins the server up for us — no manual `docker compose` needed:
+
+    AI_INTEGRATION=1 uv run --extra temporal pytest tests/test_workflow_temporal.py -q
 
 Drives a real workflow through the arvel-owned WorkflowDriver: start -> signal ->
 durable-suspend-then-resume -> complete, with an in-process Temporal worker.
@@ -13,20 +14,22 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 
 from arvel_ai.workflows.contracts import WorkflowHandle
 from arvel_ai.workflows.drivers.temporal import TemporalWorkflowDriver
 
-TARGET = os.environ.get("AI_TEMPORAL_TARGET")
+INTEGRATION = os.environ.get("AI_INTEGRATION") == "1"
 
 pytestmark = pytest.mark.skipif(
-    not TARGET, reason="AI_TEMPORAL_TARGET not set (start docker-compose.test.yml)"
+    not INTEGRATION, reason="AI_INTEGRATION != 1 — real-service tier (needs Docker)"
 )
 
-# Temporal requires workflow classes to be module-level (globally name-referenceable).
-if TARGET:
+# Temporal requires workflow classes to be module-level (globally name-referenceable),
+# and temporalio only ships with the `temporal` extra — so import it under the flag.
+if INTEGRATION:
     from temporalio import workflow as t_workflow
 
     @t_workflow.defn(name="gate_wf")
@@ -44,24 +47,52 @@ if TARGET:
             self._approved = value
 
 
+@pytest.fixture(scope="module")
+def temporal_target() -> Iterator[str]:
+    """Start a real Temporal dev server in a container; yield its host:port."""
+    from testcontainers.core.container import DockerContainer
+
+    container = (
+        DockerContainer("temporalio/temporal:1.5.1")
+        .with_command("server start-dev --ip 0.0.0.0 --namespace default")
+        .with_exposed_ports(7233)
+    )
+    container.start()
+    try:
+        host = container.get_container_host_ip()
+        yield f"{host}:{container.get_exposed_port(7233)}"
+    finally:
+        container.stop()
+
+
 @pytest.fixture()
-async def task_queue():  # type: ignore[no-untyped-def]
-    """Run a real Temporal worker against the server for the test's duration."""
+async def task_queue(temporal_target: str) -> AsyncIterator[tuple[str, str]]:
+    """Run a real Temporal worker against the server for the test's duration. Retries the
+    initial connect while the freshly-started server finishes coming up."""
     from temporalio.client import Client
     from temporalio.worker import Worker
 
+    client = None
+    for _ in range(60):
+        try:
+            client = await Client.connect(temporal_target, namespace="default")
+            break
+        except Exception:  # noqa: BLE001 - server still booting; retry
+            await asyncio.sleep(1)
+    assert client is not None, "Temporal server never became reachable"
+
     queue = f"arvel-ai-test-{uuid.uuid4().hex[:8]}"
-    client = await Client.connect(TARGET, namespace="default")
     worker = Worker(client, task_queue=queue, workflows=[GateWorkflow])
     task = asyncio.create_task(worker.run())
     try:
-        yield queue
+        yield queue, temporal_target
     finally:
         task.cancel()
 
 
-async def test_real_workflow_start_signal_complete(task_queue: str) -> None:
-    driver = TemporalWorkflowDriver(target=TARGET, task_queue=task_queue)
+async def test_real_workflow_start_signal_complete(task_queue: tuple[str, str]) -> None:
+    queue, target = task_queue
+    driver = TemporalWorkflowDriver(target=target, task_queue=queue)
 
     handle = await driver.start("gate_wf", (), {})
     assert isinstance(handle, WorkflowHandle)

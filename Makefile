@@ -29,9 +29,8 @@ imports:  ## import-linter — keeps engines (litellm/httpx/temporalio) off the 
 test:  ## pytest (hermetic; integration tiers are env-gated)
 	$(RUN) pytest
 
-test-integration:  ## real-service tiers (needs Docker / provider keys / AI_TEMPORAL_TARGET)
-	docker compose -f docker-compose.test.yml up -d
-	AI_TEMPORAL_TARGET=localhost:7233 $(RUN) pytest tests/test_workflow_temporal.py
+test-integration:  ## real-service tier — testcontainers spins up Temporal (needs Docker)
+	AI_INTEGRATION=1 $(RUN) --extra temporal pytest tests/test_workflow_temporal.py
 
 check: lint format-check typecheck imports test  ## Everything CI runs
 
