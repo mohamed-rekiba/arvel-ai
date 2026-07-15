@@ -101,6 +101,29 @@ async def test_queue_driver_records_failure(wf_app: Application) -> None:
         registry.remove("boom_wf")
 
 
+async def test_status_is_visible_across_driver_instances_via_cache() -> None:
+    # a `cache` binding makes status cross-process: a second driver instance (as if in the
+    # worker process) sees what the first (web process) wrote — backed by arvel.cache.
+    from arvel.cache import CacheManager
+
+    app = Application()
+    app.singleton("cache", lambda _c: CacheManager())  # default array store, shared
+
+    @workflow(name="shared_wf")
+    async def shared(ctx: object, x: int) -> int:
+        return x * 2
+
+    try:
+        writer = QueueWorkflowDriver(app)
+        reader = QueueWorkflowDriver(app)  # a distinct instance, sharing only the app's cache
+        handle = await writer.start("shared_wf", (21,), {})
+        status = await reader.status(handle.id)
+        assert status.state == "completed"
+        assert status.result == 42
+    finally:
+        registry.remove("shared_wf")
+
+
 # ---- fake driver + facade ---------------------------------------------------
 
 

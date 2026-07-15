@@ -1,6 +1,7 @@
 """Queue-backed workflow driver — the default. Runs a workflow function via the
 app's runner (arvel.queue in production) and tracks state in a store (arvel.cache
-in production; an in-process dict otherwise).
+when the app has a `cache` binding — visible across the web and worker processes;
+an in-process dict otherwise).
 
 Honest ceiling: signals are **cooperative** — `wait_signal` reads what's already
 been delivered to the store; it does not durably block a suspended execution the
@@ -13,11 +14,54 @@ from __future__ import annotations
 
 from typing import Any
 
+import msgspec
+
+from arvel.support import Str
+
 from arvel_ai.workflows.contracts import (
     WorkflowHandle,
     WorkflowStatus,
     registry,
 )
+
+
+class _StateStore:
+    """Status + signals for the queue driver. Backed by `arvel.cache` when the app has a
+    `cache` binding (cross-process visibility), else an in-process dict (single-process
+    default). Values are msgspec-encoded so a serializing cache backend round-trips them —
+    which means a workflow `result` must be msgspec-encodable (JSON-native or a Struct)."""
+
+    def __init__(self, app: Any = None) -> None:
+        self._cache = app.make("cache") if (app is not None and app.bound("cache")) else None
+        self._local: dict[str, bytes] = {}
+
+    async def _put(self, key: str, value: bytes) -> None:
+        if self._cache is not None:
+            await self._cache.put(key, value)
+        else:
+            self._local[key] = value
+
+    async def _get(self, key: str) -> bytes | None:
+        if self._cache is not None:
+            cached: bytes | None = await self._cache.get(key)  # CacheManager.get is untyped (Any)
+            return cached
+        return self._local.get(key)
+
+    async def set_status(self, status: WorkflowStatus) -> None:
+        await self._put(f"workflow:status:{status.id}", msgspec.json.encode(status))
+
+    async def get_status(self, workflow_id: str) -> WorkflowStatus | None:
+        raw = await self._get(f"workflow:status:{workflow_id}")
+        return msgspec.json.decode(raw, type=WorkflowStatus) if raw else None
+
+    async def get_signals(self, workflow_id: str) -> dict[str, Any]:
+        raw = await self._get(f"workflow:signals:{workflow_id}")
+        return msgspec.json.decode(raw, type=dict) if raw else {}
+
+    async def add_signal(self, workflow_id: str, name: str, payload: Any) -> None:
+        signals = await self.get_signals(workflow_id)
+        signals[name] = payload
+        await self._put(f"workflow:signals:{workflow_id}", msgspec.json.encode(signals))
 
 
 class _QueueContext:
@@ -35,12 +79,10 @@ class _QueueContext:
 class QueueWorkflowDriver:
     def __init__(self, app: Any = None) -> None:
         self.app = app
-        # ponytail: in-process store — swap for arvel.cache (put/get) to make
-        # status + signals visible across the web and worker processes
-        self._status: dict[str, WorkflowStatus] = {}
-        self._signals: dict[str, dict[str, Any]] = {}
+        self._store = _StateStore(app)
+        # deferred-start closure args are process-local by nature (resume runs in the
+        # process that deferred); only status + signals need cross-process visibility.
         self._pending: dict[str, tuple[str, tuple[Any, ...], dict[str, Any]]] = {}
-        self._counter = 0
 
     def _runner(self) -> Any:
         # test/override seam; production binds a runner that enqueues a Job
@@ -49,24 +91,22 @@ class QueueWorkflowDriver:
         return None
 
     def _new_id(self, name: str) -> WorkflowHandle:
-        self._counter += 1
-        wid = f"wf-{name}-{self._counter}"
-        self._signals.setdefault(wid, {})
-        return WorkflowHandle(id=wid, name=name)
+        # a globally-unique id (uuid7, time-ordered) so ids never collide across processes
+        return WorkflowHandle(id=f"wf-{name}-{Str.uuid()}", name=name)
 
     async def _execute(
         self, handle: WorkflowHandle, args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> None:
         fn = registry.get(handle.name)
-        ctx = _QueueContext(handle.id, self._signals.get(handle.id, {}))
+        ctx = _QueueContext(handle.id, await self._store.get_signals(handle.id))
         try:
             result = await fn(ctx, *args, **kwargs)
-            self._status[handle.id] = WorkflowStatus(
-                id=handle.id, name=handle.name, state="completed", result=result
+            await self._store.set_status(
+                WorkflowStatus(id=handle.id, name=handle.name, state="completed", result=result)
             )
         except Exception as exc:
-            self._status[handle.id] = WorkflowStatus(
-                id=handle.id, name=handle.name, state="failed", error=str(exc)
+            await self._store.set_status(
+                WorkflowStatus(id=handle.id, name=handle.name, state="failed", error=str(exc))
             )
 
     # -- contract ---------------------------------------------------------------
@@ -75,7 +115,7 @@ class QueueWorkflowDriver:
         self, name: str, args: tuple[Any, ...] = (), kwargs: dict[str, Any] | None = None
     ) -> WorkflowHandle:
         handle = self._new_id(name)
-        self._status[handle.id] = WorkflowStatus(id=handle.id, name=name, state="running")
+        await self._store.set_status(WorkflowStatus(id=handle.id, name=name, state="running"))
         runner = self._runner()
         if runner is not None:
             await runner(self._execute, handle, args, kwargs or {})
@@ -84,12 +124,13 @@ class QueueWorkflowDriver:
         return handle
 
     async def signal(self, workflow_id: str, name: str, payload: Any = None) -> None:
-        self._signals.setdefault(workflow_id, {})[name] = payload
+        await self._store.add_signal(workflow_id, name, payload)
 
     async def status(self, workflow_id: str) -> WorkflowStatus:
-        if workflow_id not in self._status:
+        status = await self._store.get_status(workflow_id)
+        if status is None:
             raise KeyError(f"no workflow {workflow_id!r}")
-        return self._status[workflow_id]
+        return status
 
     # -- deferred start (signal before run) — used when a signal must be present
     #    before the (cooperative) execution reads it ----------------------------
@@ -98,7 +139,7 @@ class QueueWorkflowDriver:
         self, name: str, args: tuple[Any, ...] = (), kwargs: dict[str, Any] | None = None
     ) -> WorkflowHandle:
         handle = self._new_id(name)
-        self._status[handle.id] = WorkflowStatus(id=handle.id, name=name, state="running")
+        await self._store.set_status(WorkflowStatus(id=handle.id, name=name, state="running"))
         self._pending[handle.id] = (name, args, kwargs or {})
         return handle
 
