@@ -13,6 +13,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+from arvel.contracts import HealthResult, HealthStatus
 from arvel.support.manager import MissingExtraError
 
 from arvel_ai.contracts import (
@@ -38,6 +39,11 @@ from arvel_ai.contracts import (
 
 from ._openai_format import _FINISH_REASONS, parse_openai_response, to_openai_payload
 
+_HEALTH_TIMEOUT = 5.0  # keep the boot/health probe snappy — don't hang startup on a slow provider
+# transport/auth-level failures mean the provider is unusable; a request-level error (bad request,
+# rate limit, content filter) means it's reachable + authed but impaired
+_HEALTH_FAILED = (AiAuthError, AiTimeout, AiProviderError)
+
 
 class LiteLLMDriver:
     supports_embeddings = True
@@ -60,6 +66,31 @@ class LiteLLMDriver:
         except ImportError as exc:
             raise MissingExtraError("litellm", package="arvel-ai") from exc
         return litellm
+
+    async def health(self) -> HealthResult:
+        """A real probe (DR-0039): a max_tokens=1 completion via litellm, exercising the same
+        auth + provider path a real call uses. A bad/missing provider key -> FAILED, an
+        unreachable or slow provider -> FAILED, a request-level error -> DEGRADED; a genuine
+        completion -> OK. Non-critical: a failure degrades boot rather than aborting it."""
+        if not self.model:
+            return HealthResult(HealthStatus.DEGRADED, detail="no model configured")
+        try:
+            litellm = self._litellm()
+        except MissingExtraError as exc:
+            return HealthResult(HealthStatus.FAILED, detail=str(exc))
+        try:
+            await litellm.acompletion(
+                model=self.model,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+                timeout=_HEALTH_TIMEOUT,
+                num_retries=0,
+            )
+        except Exception as exc:  # noqa: BLE001 - translated at the boundary
+            err = self._translate(exc)
+            status = HealthStatus.FAILED if isinstance(err, _HEALTH_FAILED) else HealthStatus.DEGRADED
+            return HealthResult(status, detail=f"{type(err).__name__}: {err}")
+        return HealthResult(HealthStatus.OK, detail="completion reachable")
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         litellm = self._litellm()
