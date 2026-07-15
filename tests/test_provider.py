@@ -1,4 +1,4 @@
-"""Provider wiring: bindings resolve, config merges, commands register."""
+"""Provider wiring: bindings resolve, typed settings default, commands register."""
 
 from __future__ import annotations
 
@@ -6,13 +6,16 @@ from arvel.kernel import Application
 
 from arvel_ai.commands import cli
 from arvel_ai.manager import AiManager
+from arvel_ai.settings import AiSettings
 
 
-def test_manager_binds_and_config_merges(app: Application) -> None:
+def test_manager_binds_and_settings_default(app: Application) -> None:
     manager = app.make("ai")
     assert isinstance(manager, AiManager)
-    assert app.make("config").get("ai.default") == "litellm"
-    assert app.make("config").get("ai.drivers.fake") == {}
+    # typed AiSettings supplies defaults (no merge_config_from / DEFAULTS dict)
+    assert manager.settings().default == "litellm"
+    assert AiSettings().default == "litellm"
+    assert manager.default_driver() == "litellm"
 
 
 def test_commands_are_registered(app: Application) -> None:
@@ -20,7 +23,7 @@ def test_commands_are_registered(app: Application) -> None:
 
 
 def test_missing_extra_hint_names_this_distribution(app: Application) -> None:
-    app.make("config").get("ai")["default"] = "nonexistent"
+    app.make("config").set("ai.default", "nonexistent")
     manager = app.make("ai")
     try:
         manager.driver()

@@ -100,13 +100,13 @@ async def test_fake_driver_embeds() -> None:
 @pytest.fixture()
 def fake_app(app: Application) -> Application:
     """The booted app from conftest, pointed at the fake driver."""
-    app.make("config").get("ai")["default"] = "fake"
+    app.make("config").set("ai.default", "fake")
     return app
 
 
 async def test_manager_chat_str_sugar_and_alias_resolution(fake_app: Application) -> None:
     manager = fake_app.make("ai")
-    fake_app.make("config").get("ai")["models"]["fast"] = "concrete-model-id"
+    fake_app.make("config").set("ai.models.fast", "concrete-model-id")
     resp = await manager.chat("hello", model="fast")
     assert isinstance(resp, ChatResponse)
     sent = manager.driver().requests[-1]

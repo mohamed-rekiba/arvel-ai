@@ -26,6 +26,7 @@ from .contracts import (
     ToolDef,
 )
 from .events import AiEmbedding, AiRequestFailed, AiRequestSending, AiResponseReceived
+from .settings import AiSettings, _as_kwargs
 
 MessagesInput = str | list[Message] | ChatRequest
 
@@ -34,15 +35,13 @@ class AiManager(Manager):
     # MissingExtraError hints name this distribution, not arvel core.
     extra_package = "arvel-ai"
 
-    # -- driver wiring --------------------------------------------------------
+    # -- driver wiring (typed Settings — the framework's config pattern) -------
 
-    def _config(self, key: str, default: Any = None) -> Any:
-        if self.app is None:
-            return default
-        return self.app.make("config").get(f"ai.{key}", default)
+    def settings(self) -> AiSettings:
+        return self._settings(AiSettings)
 
     def default_driver(self) -> str:
-        return str(self._config("default", "litellm"))
+        return self.settings().default
 
     def create_fake_driver(self) -> Any:
         from .drivers.fake import FakeAiDriver
@@ -52,12 +51,12 @@ class AiManager(Manager):
     def create_openai_compatible_driver(self) -> Any:
         from .drivers.openai_compatible import OpenAICompatibleDriver
 
-        return OpenAICompatibleDriver(**(self._config("drivers.openai_compatible", {}) or {}))
+        return OpenAICompatibleDriver(**_as_kwargs(self.settings().drivers.openai_compatible))
 
     def create_litellm_driver(self) -> Any:
         from .drivers.litellm import LiteLLMDriver
 
-        return LiteLLMDriver(**(self._config("drivers.litellm", {}) or {}))
+        return LiteLLMDriver(**_as_kwargs(self.settings().drivers.litellm))
 
     # -- request building -------------------------------------------------------
 
@@ -66,8 +65,7 @@ class AiManager(Manager):
         apps say "fast"/"smart"; a provider retiring a model is a config edit."""
         if model is None:
             return None
-        aliases: dict[str, str] = self._config("models", {}) or {}
-        return aliases.get(model, model)
+        return self.settings().models.get(model, model)
 
     def _build_request(
         self,

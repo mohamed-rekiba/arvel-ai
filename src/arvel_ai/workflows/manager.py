@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from arvel.support.manager import Manager
 
+from ..settings import WorkflowSettings
 from .contracts import WorkflowDriver, WorkflowHandle, WorkflowStatus
 
 
@@ -19,10 +20,14 @@ class WorkflowManager(Manager):
     def _driver(self) -> WorkflowDriver:
         return cast(WorkflowDriver, self.driver())
 
+    def workflow_settings(self) -> WorkflowSettings:
+        # base Manager._settings(cls) reads THIS manager's app config section
+        from ..settings import AiSettings
+
+        return self._settings(AiSettings).workflows
+
     def default_driver(self) -> str:
-        if self.app is not None:
-            return str(self.app.make("config").get("ai.workflows.default", "queue"))
-        return "queue"
+        return self.workflow_settings().default
 
     def create_queue_driver(self) -> Any:
         from .drivers.queue import QueueWorkflowDriver
@@ -37,10 +42,10 @@ class WorkflowManager(Manager):
     def create_temporal_driver(self) -> Any:
         from .drivers.temporal import TemporalWorkflowDriver
 
-        cfg: dict[str, Any] = {}
-        if self.app is not None:
-            cfg = self.app.make("config").get("ai.workflows.drivers.temporal", {}) or {}
-        return TemporalWorkflowDriver(**cfg)
+        temporal = self.workflow_settings().drivers.temporal
+        return TemporalWorkflowDriver(
+            target=temporal.target, namespace=temporal.namespace, task_queue=temporal.task_queue
+        )
 
     # -- caller-facing sugar ----------------------------------------------------
 

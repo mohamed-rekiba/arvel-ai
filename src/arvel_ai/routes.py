@@ -15,12 +15,13 @@ from arvel.http.response import Response
 # absolute import: the framework loads route files by PATH (no package context),
 # so a relative import here breaks under load_routes_from
 from arvel_ai.mcp import McpAuthError, McpServer, registry
+from arvel_ai.settings import AiSettings
 
 
 def _server() -> McpServer:
     return McpServer(
         registry=registry,
-        config=config("ai.mcp", {}) or {},
+        settings=AiSettings().mcp,
         server_name=str(config("app.name", "arvel-app")),
     )
 
@@ -44,7 +45,7 @@ async def resource_metadata(request: Any) -> dict[str, Any]:
     return _server().protected_resource_metadata()
 
 
-Route.post(str(config("ai.mcp.path", "/mcp")), mcp_endpoint, name="ai.mcp")
+Route.post(AiSettings().mcp.path, mcp_endpoint, name="ai.mcp")
 Route.get(
     "/.well-known/oauth-protected-resource", resource_metadata, name="ai.mcp.metadata"
 )

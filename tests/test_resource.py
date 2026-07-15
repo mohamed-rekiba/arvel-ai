@@ -11,7 +11,7 @@ from arvel_ai.resource import AiResource
 
 
 async def test_resource_reports_configured_driver_healthy(app: Application) -> None:
-    app.make("config").get("ai")["default"] = "fake"
+    app.make("config").set("ai.default", "fake")
     resource = AiResource(app.make("ai"))
     result = await resource.check()
     assert result.status is HealthStatus.OK
@@ -19,7 +19,7 @@ async def test_resource_reports_configured_driver_healthy(app: Application) -> N
 
 
 async def test_resource_degrades_on_missing_extra(app: Application) -> None:
-    app.make("config").get("ai")["default"] = "nonexistent"
+    app.make("config").set("ai.default", "nonexistent")
     resource = AiResource(app.make("ai"))
     result = await resource.check()
     assert result.status is HealthStatus.FAILED
@@ -42,7 +42,7 @@ async def test_resource_disconnect_drains_a_driver_with_a_client() -> None:
     manager = application.make("ai")
     driver = ClosableDriver()
     manager.extend("closable", lambda _app: driver)
-    application.make("config").get("ai")["default"] = "closable"
+    application.make("config").set("ai.default", "closable")
 
     await AiResource(manager).disconnect()
     assert driver.closed is True

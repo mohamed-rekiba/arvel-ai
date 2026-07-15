@@ -10,11 +10,11 @@ cli = typer.Typer()
 @cli.command("ai:models")
 def models() -> None:
     """Show the configured default driver and model aliases."""
-    from arvel import config
+    from .settings import AiSettings
 
-    typer.echo(f"default driver: {config('ai.default')}")
-    aliases: dict[str, str] = config("ai.models", {}) or {}
-    if not aliases:
+    settings = AiSettings()
+    typer.echo(f"default driver: {settings.default}")
+    if not settings.models:
         typer.echo("model aliases: (none configured — set config ai.models)")
-    for alias, concrete in aliases.items():
+    for alias, concrete in settings.models.items():
         typer.echo(f"  {alias} -> {concrete}")

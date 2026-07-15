@@ -20,7 +20,7 @@ def eventful_app() -> Application:
     provider = AiServiceProvider(application)
     provider.register()
     provider.boot()
-    application.make("config").get("ai")["default"] = "fake"
+    application.make("config").set("ai.default", "fake")
     return application
 
 
@@ -72,6 +72,6 @@ async def test_chat_failure_dispatches_terminal_event(eventful_app: Application)
 
 async def test_chat_works_without_events_binding(app: Application) -> None:
     """A bare app (no events dispatcher) must not break the gateway."""
-    app.make("config").get("ai")["default"] = "fake"
+    app.make("config").set("ai.default", "fake")
     response = await app.make("ai").chat("hello")
     assert response.text == "ok"

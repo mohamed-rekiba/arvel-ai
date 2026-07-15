@@ -12,7 +12,9 @@ from arvel_ai.provider import AiServiceProvider
 
 
 def test_mcp_disabled_by_default(app: Application) -> None:
-    assert app.make("config").get("ai.mcp.enabled") is False
+    from arvel_ai.settings import AiSettings
+
+    assert AiSettings().mcp.enabled is False
     assert not [p for p in app.route_files if "arvel_ai" in str(p)]
 
 

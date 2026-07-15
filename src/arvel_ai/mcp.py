@@ -28,6 +28,8 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from .settings import McpAuthSettings, McpSettings
+
 PROTOCOL_VERSION = "2025-06-18"
 
 _JSON_TYPES: dict[type, str] = {str: "string", int: "integer", float: "number", bool: "boolean"}
@@ -133,26 +135,26 @@ class McpServer:
     def __init__(
         self,
         registry: ToolRegistry,
-        config: Mapping[str, Any] | None = None,
+        settings: McpSettings | None = None,
         server_name: str = "arvel-ai",
     ) -> None:
         self.registry = registry
-        self.config: dict[str, Any] = dict(config or {})
+        self.settings = settings if settings is not None else McpSettings()
         self.server_name = server_name
 
     # -- auth -------------------------------------------------------------------
 
     @property
-    def _auth(self) -> dict[str, Any]:
-        return dict(self.config.get("auth") or {})
+    def _auth(self) -> McpAuthSettings:
+        return self.settings.auth
 
     @property
     def resource_uri(self) -> str:
-        public = str(self.config.get("public_url") or "").rstrip("/")
-        return f"{public}{self.config.get('path', '/mcp')}"
+        public = (self.settings.public_url or "").rstrip("/")
+        return f"{public}{self.settings.path}"
 
     def _challenge(self, message: str, status: int = 401) -> McpAuthError:
-        public = str(self.config.get("public_url") or "").rstrip("/")
+        public = (self.settings.public_url or "").rstrip("/")
         header = f'Bearer resource_metadata="{public}/.well-known/oauth-protected-resource"'
         return McpAuthError(status, message, www_authenticate=header)
 
@@ -162,9 +164,9 @@ class McpServer:
         if not authorization.startswith("Bearer "):
             raise self._challenge("missing bearer token")
         token = authorization[len("Bearer ") :]
-        mode = self._auth.get("mode", "token")
+        mode = self._auth.mode
         if mode == "token":
-            expected = os.environ.get(str(self._auth.get("token_env", "MCP_TOKEN")), "")
+            expected = os.environ.get(self._auth.token_env, "")
             if not expected or not hmac.compare_digest(token, expected):
                 raise self._challenge("invalid token")
             return
@@ -174,10 +176,10 @@ class McpServer:
         raise self._challenge(f"unknown auth mode {mode!r}")
 
     def _authenticate_oidc(self, token: str) -> None:
-        issuer = self._auth.get("issuer")
+        issuer = self._auth.issuer
         if not issuer:
             raise self._challenge("oidc auth is not configured (set ai.mcp.auth.issuer)")
-        if not self._auth.get("audience") and not self.config.get("public_url"):
+        if not self._auth.audience and not self.settings.public_url:
             # audience would degrade to a bare path — refuse rather than validate
             # against a weak/foot-gun aud
             raise self._challenge("oidc auth needs public_url (or an explicit auth.audience)")
@@ -185,8 +187,8 @@ class McpServer:
             import jwt as pyjwt  # arvel's jwt extra
         except ImportError as exc:  # pragma: no cover
             raise self._challenge("oidc auth needs pyjwt: uv add 'arvel[jwt]'") from exc
-        jwks_uri = self._auth.get("jwks_uri") or f"{str(issuer).rstrip('/')}/protocol/openid-connect/certs"
-        audience = self._auth.get("audience") or self.resource_uri
+        jwks_uri = self._auth.jwks_uri or f"{issuer.rstrip('/')}/protocol/openid-connect/certs"
+        audience = self._auth.audience or self.resource_uri
         try:
             key = pyjwt.PyJWKClient(jwks_uri).get_signing_key_from_jwt(token).key
             pyjwt.decode(
@@ -205,7 +207,7 @@ class McpServer:
     def protected_resource_metadata(self) -> dict[str, Any]:
         return {
             "resource": self.resource_uri,
-            "authorization_servers": [self._auth.get("issuer")] if self._auth.get("issuer") else [],
+            "authorization_servers": [self._auth.issuer] if self._auth.issuer else [],
             "bearer_methods_supported": ["header"],
         }
 

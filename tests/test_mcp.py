@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from arvel_ai.settings import McpAuthSettings, McpSettings
 from arvel_ai.mcp import (
     McpAuthError,
     McpServer,
@@ -122,18 +123,18 @@ async def test_unknown_method_is_jsonrpc_error(server: McpServer) -> None:
 # ---- auth ---------------------------------------------------------------------
 
 
-def auth_config(mode: str, **extra: Any) -> dict[str, Any]:
-    return {
-        "enabled": True,
-        "path": "/mcp",
-        "public_url": "https://app.example.com",
-        "auth": {"mode": mode, "token_env": "MCP_TOKEN", **extra},
-    }
+def auth_settings(mode: str, **extra: Any) -> McpSettings:
+    return McpSettings(
+        enabled=True,
+        path="/mcp",
+        public_url="https://app.example.com",
+        auth=McpAuthSettings(mode=mode, token_env="MCP_TOKEN", **extra),
+    )
 
 
 def test_token_mode_accepts_matching_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
-    server = McpServer(registry=make_registry(), config=auth_config("token"))
+    server = McpServer(registry=make_registry(), settings=auth_settings("token"))
     server.authenticate({"authorization": "Bearer s3cret"})  # no raise
 
 
@@ -142,7 +143,7 @@ def test_token_mode_rejects_with_challenge(
     monkeypatch: pytest.MonkeyPatch, header: dict[str, str]
 ) -> None:
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
-    server = McpServer(registry=make_registry(), config=auth_config("token"))
+    server = McpServer(registry=make_registry(), settings=auth_settings("token"))
     with pytest.raises(McpAuthError) as exc:
         server.authenticate(header)
     assert exc.value.status == 401
@@ -156,7 +157,7 @@ def test_token_mode_rejects_with_challenge(
 def test_protected_resource_metadata_document() -> None:
     server = McpServer(
         registry=make_registry(),
-        config=auth_config("oidc", issuer="https://idp.example.com/realms/app"),
+        settings=auth_settings("oidc", issuer="https://idp.example.com/realms/app"),
     )
     doc = server.protected_resource_metadata()
     assert doc == {
@@ -167,7 +168,7 @@ def test_protected_resource_metadata_document() -> None:
 
 
 def test_oidc_mode_requires_issuer_config() -> None:
-    server = McpServer(registry=make_registry(), config=auth_config("oidc"))
+    server = McpServer(registry=make_registry(), settings=auth_settings("oidc"))
     with pytest.raises(McpAuthError) as exc:
         server.authenticate({"authorization": "Bearer sometoken"})
     assert exc.value.status == 401
