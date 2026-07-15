@@ -120,14 +120,24 @@ class TextDelta(msgspec.Struct, tag="delta"):
     text: str
 
 
+class ToolCallDelta(msgspec.Struct, tag="tool_call_delta"):
+    """An incremental tool-call fragment during streaming. Providers emit a call's
+    ``id``/``name`` once (early) and its ``arguments`` as a JSON string split across
+    deltas — concatenate ``arguments`` per ``index`` to rebuild the call. The complete
+    calls are still buffered into ``StreamEnd.response.tool_calls``, so a consumer that
+    doesn't need token-level tool streaming can ignore these and read the end."""
+
+    index: int
+    id: str | None = None
+    name: str | None = None
+    arguments: str = ""  # a fragment of the arguments JSON string (empty for the opening delta)
+
+
 class StreamEnd(msgspec.Struct, tag="end"):
     response: ChatResponse
 
 
-ChatDelta = TextDelta | StreamEnd
-# ponytail: tool-call arguments are not streamed incrementally in v1 (providers
-# diverge hardest there) — a streamed turn ending in tool_use buffers the calls
-# into StreamEnd.response. Add a ToolCallDelta variant if demand appears.
+ChatDelta = TextDelta | ToolCallDelta | StreamEnd
 
 
 # ---- errors (S1 taxonomy) ---------------------------------------------------

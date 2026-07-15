@@ -22,6 +22,7 @@ from arvel_ai.contracts import (
     StreamEnd,
     TextDelta,
     ToolCall,
+    ToolCallDelta,
     ToolDef,
     ToolResult,
 )
@@ -214,3 +215,74 @@ async def test_stream_skips_malformed_sse_chunk() -> None:
     ]
     assert isinstance(events[-1], StreamEnd)
     assert events[-1].response.text == "ab"  # the bad chunk was skipped, not fatal
+
+
+async def test_stream_emits_tool_call_deltas_and_buffers_full_call() -> None:
+    chunks = [
+        {
+            "model": "m",
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "function": {"name": "get_weather", "arguments": ""},
+                            }
+                        ]
+                    }
+                }
+            ],
+        },
+        {
+            "model": "m",
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"city":'}}]}}
+            ],
+        },
+        {
+            "model": "m",
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '"NYC"}'}}]}}
+            ],
+        },
+        {"model": "m", "choices": [{"finish_reason": "tool_calls", "delta": {}}]},
+    ]
+    sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+    driver = driver_with(
+        lambda request: httpx.Response(
+            200, content=sse.encode(), headers={"content-type": "text/event-stream"}
+        )
+    )
+    events = [
+        e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))
+    ]
+    deltas = [e for e in events if isinstance(e, ToolCallDelta)]
+    assert deltas[0].id == "call_1" and deltas[0].name == "get_weather"
+    assert "".join(d.arguments for d in deltas) == '{"city":"NYC"}'  # fragments reassemble
+    end = events[-1]
+    assert isinstance(end, StreamEnd)
+    # the complete call is still buffered into StreamEnd for consumers that skip the deltas
+    assert end.response.tool_calls == [
+        ToolCall(id="call_1", name="get_weather", arguments={"city": "NYC"})
+    ]
+
+
+async def test_driver_pools_one_client_and_aclose_drains_it() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json=CHAT_OK)
+
+    driver = driver_with(handler)
+    req = ChatRequest(messages=[Message(role="user", content="x")])
+    await driver.chat(req)
+    await driver.chat(req)
+    assert calls == 2  # both calls served through the one pooled client
+    # the pool's keep-alive client is live until drained
+    assert driver._http._shared  # a per-loop client was created and cached
+    await driver.aclose()
+    assert not driver._http._shared  # aclose drained + cleared the pool

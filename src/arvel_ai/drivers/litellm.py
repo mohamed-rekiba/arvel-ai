@@ -9,6 +9,7 @@ var (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -28,10 +29,14 @@ from arvel_ai.contracts import (
     EmbedRequest,
     EmbedResponse,
     StreamEnd,
+    Text,
+    TextDelta,
+    ToolCall,
+    ToolCallDelta,
     Usage,
 )
 
-from ._openai_format import parse_openai_response, to_openai_payload
+from ._openai_format import _FINISH_REASONS, parse_openai_response, to_openai_payload
 
 
 class LiteLLMDriver:
@@ -71,38 +76,50 @@ class LiteLLMDriver:
         )
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatDelta]:
-        # ponytail: v1 streams via one buffered completion per S1 (text deltas
-        # from litellm chunks; tool calls buffered). Upgrade: wire litellm's
-        # chunk stream through when the openai_compatible SSE path stabilizes.
         litellm = self._litellm()
         payload = to_openai_payload(request, self.model)
+        text_parts: list[str] = []
+        tool_calls: dict[int, dict[str, Any]] = {}
+        model = ""
+        finish = "stop"
         try:
             stream = await litellm.acompletion(
                 **payload, stream=True, timeout=self.timeout, num_retries=self.max_retries
             )
-            text_parts: list[str] = []
-            model = ""
-            finish = "stop"
             async for chunk in stream:
                 data = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)
                 model = data.get("model") or model
                 choice = (data.get("choices") or [{}])[0]
                 finish = choice.get("finish_reason") or finish
-                content = (choice.get("delta") or {}).get("content")
+                delta = choice.get("delta") or {}
+                content = delta.get("content")
                 if content:
                     text_parts.append(content)
-                    from arvel_ai.contracts import TextDelta
-
                     yield TextDelta(text=content)
+                for tc in delta.get("tool_calls") or []:
+                    index = tc.get("index", 0)
+                    slot = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                    fn = tc.get("function") or {}
+                    tc_id, name = tc.get("id"), fn.get("name")
+                    args_fragment = fn.get("arguments") or ""
+                    slot["id"] = tc_id or slot["id"]
+                    slot["name"] = name or slot["name"]
+                    slot["arguments"] += args_fragment
+                    yield ToolCallDelta(index=index, id=tc_id, name=name, arguments=args_fragment)
         except Exception as exc:  # noqa: BLE001
             raise self._translate(exc) from exc
-        from arvel_ai.contracts import Text
-
-        from ._openai_format import _FINISH_REASONS  # noqa: PLC0415
-
+        content_parts: list[Any] = [Text(text="".join(text_parts))] if text_parts else []
+        for slot in tool_calls.values():
+            content_parts.append(
+                ToolCall(
+                    id=slot["id"],
+                    name=slot["name"],
+                    arguments=json.loads(slot["arguments"] or "{}"),
+                )
+            )
         yield StreamEnd(
             response=ChatResponse(
-                content=[Text(text="".join(text_parts))] if text_parts else [],
+                content=content_parts,
                 stop_reason=_FINISH_REASONS.get(finish, "other"),
                 model=model,
             )

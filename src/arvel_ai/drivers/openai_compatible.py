@@ -1,8 +1,10 @@
 """Driver for any OpenAI-format endpoint: a deployed LiteLLM proxy, vLLM,
 Ollama's OpenAI route, or OpenAI itself.
 
-HTTP + SSE go through arvel's ``Http`` client (``arvel.client.PendingRequest``): arvel
-core owns pooling, timeouts, and SSE parsing (``ServerSentEvent``). This driver is the
+HTTP + SSE go through arvel's ``Http`` client (``arvel.client.Client``): arvel core owns
+connection pooling, timeouts, and SSE parsing (``ServerSentEvent``). The driver holds one
+pooled ``Client`` and reuses its keep-alive connections across calls; ``aclose()`` drains
+the pool at shutdown (DR-0039 — ``AiResource.disconnect`` calls it). This driver is the
 anti-corruption boundary (DR-0041) — it maps arvel's transport exceptions
 (``RequestTimedOut``/``TransportFailed``) and OpenAI status codes to the ``AiError``
 taxonomy so no engine type crosses the public surface. It never imports httpx: arvel's
@@ -19,7 +21,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-from arvel.client import PendingRequest, RequestFailed, RequestTimedOut, TransportFailed
+from arvel.client import Client, PendingRequest, RequestFailed, RequestTimedOut, TransportFailed
 
 from arvel_ai.contracts import (
     AiAuthError,
@@ -36,6 +38,7 @@ from arvel_ai.contracts import (
     Text,
     TextDelta,
     ToolCall,
+    ToolCallDelta,
     Usage,
 )
 
@@ -69,20 +72,24 @@ class OpenAICompatibleDriver:
         self.model = model
         self.timeout = timeout
         self.include_raw = include_raw
-        self._transport = transport
+        # one pooled client for the driver's lifetime — keep-alive connections are reused
+        # across calls; drained by aclose() at shutdown (DR-0039)
+        self._http = Client(transport=transport)
 
     def _client(self) -> PendingRequest:
         if not self.base_url:
             raise AiInvalidRequest(
                 "openai_compatible driver has no base_url - set config ai.drivers.openai_compatible.base_url"
             )
-        req = (
-            PendingRequest(transport=self._transport).base_url(self.base_url).timeout(self.timeout)
-        )
+        req = self._http.base_url(self.base_url).timeout(self.timeout)
         key = os.environ.get(self.api_key_env, "")
         if key:
             req = req.with_token(key)
         return req
+
+    async def aclose(self) -> None:
+        """Drain the pooled client's keep-alive connections (DR-0039 teardown)."""
+        await self._http.aclose()
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         payload = to_openai_payload(request, self.model)
@@ -112,21 +119,22 @@ class OpenAICompatibleDriver:
                     text_parts.append(delta["content"])
                     yield TextDelta(text=delta["content"])
                 for tc in delta.get("tool_calls") or []:
-                    slot = tool_calls.setdefault(
-                        tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
-                    )
-                    slot["id"] = tc.get("id") or slot["id"]
+                    index = tc.get("index", 0)
+                    slot = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
                     fn = tc.get("function") or {}
-                    slot["name"] = fn.get("name") or slot["name"]
-                    slot["arguments"] += fn.get("arguments") or ""
+                    tc_id, name = tc.get("id"), fn.get("name")
+                    args_fragment = fn.get("arguments") or ""
+                    slot["id"] = tc_id or slot["id"]
+                    slot["name"] = name or slot["name"]
+                    slot["arguments"] += args_fragment
+                    # stream the fragment; the full calls are still buffered into StreamEnd
+                    yield ToolCallDelta(index=index, id=tc_id, name=name, arguments=args_fragment)
         except RequestFailed as exc:  # non-2xx status — map it like _post does
             resp = exc.response
             self._raise_for_status(resp.status(), resp.body(), resp.header("retry-after"))
         except RequestTimedOut as exc:
             raise AiTimeout(str(exc)) from exc
-        except TransportFailed as exc:
-            # a transport failure must not leak the engine type across the public
-            # surface (DR-0041) — map to the taxonomy like _post does
+        except TransportFailed as exc:  # don't leak the engine type past the boundary (DR-0041)
             raise AiProviderError(str(exc)) from exc
         content: list[Any] = [Text(text="".join(text_parts))] if text_parts else []
         for slot in tool_calls.values():
