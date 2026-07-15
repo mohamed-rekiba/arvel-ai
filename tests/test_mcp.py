@@ -1,5 +1,5 @@
 """MCP server: JSON-RPC protocol, tool registry + boundary validation, and the
-two auth modes (token / oidc metadata + 401 challenge shapes per S2)."""
+two auth modes (token and oidc, with their metadata + 401 challenge shapes)."""
 
 from __future__ import annotations
 
@@ -65,6 +65,20 @@ def test_registry_maps_non_scalar_annotations() -> None:
     assert props["tags"] == {"type": "array", "items": {"type": "string"}}
     assert props["filters"] == {"type": "object"}
     assert props["limit"] == {"type": "integer"}  # Optional[int] -> the non-None arm
+
+
+async def test_union_typed_arg_is_unconstrained_and_accepts_either_type() -> None:
+    reg = ToolRegistry()
+
+    @reg.tool()
+    async def fetch(ref: int | str) -> str:
+        return str(ref)
+
+    # a genuine multi-type union is left unconstrained rather than pinned to one arm
+    props = {t["name"]: t for t in reg.descriptors()}["fetch"]["inputSchema"]["properties"]
+    assert props["ref"] == {}
+    assert await reg.call("fetch", {"ref": 5}) == "5"
+    assert await reg.call("fetch", {"ref": "abc"}) == "abc"
 
 
 async def test_call_validates_array_and_object_arguments() -> None:
@@ -161,22 +175,22 @@ def auth_settings(mode: str, **extra: Any) -> McpSettings:
     )
 
 
-def test_token_mode_accepts_matching_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_token_mode_accepts_matching_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
     server = McpServer(registry=make_registry(), settings=auth_settings("token"))
-    server.authenticate({"authorization": "Bearer s3cret"})  # no raise
+    await server.authenticate({"authorization": "Bearer s3cret"})  # no raise
 
 
 @pytest.mark.parametrize(
     "header", [{}, {"authorization": "Bearer wrong"}, {"authorization": "Basic x"}]
 )
-def test_token_mode_rejects_with_challenge(
+async def test_token_mode_rejects_with_challenge(
     monkeypatch: pytest.MonkeyPatch, header: dict[str, str]
 ) -> None:
     monkeypatch.setenv("MCP_TOKEN", "s3cret")
     server = McpServer(registry=make_registry(), settings=auth_settings("token"))
     with pytest.raises(McpAuthError) as exc:
-        server.authenticate(header)
+        await server.authenticate(header)
     assert exc.value.status == 401
     # the S2 challenge shape that makes clients show the login button
     assert (
@@ -198,8 +212,62 @@ def test_protected_resource_metadata_document() -> None:
     }
 
 
-def test_oidc_mode_requires_issuer_config() -> None:
+async def test_oidc_mode_requires_issuer_config() -> None:
     server = McpServer(registry=make_registry(), settings=auth_settings("oidc"))
     with pytest.raises(McpAuthError) as exc:
-        server.authenticate({"authorization": "Bearer sometoken"})
+        await server.authenticate({"authorization": "Bearer sometoken"})
     assert exc.value.status == 401
+
+
+async def test_oidc_verifies_signature_audience_and_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mint real RS256 tokens against a stubbed JWKS and confirm the OIDC path accepts a valid
+    one and rejects wrong-audience (RFC 8707), expired, and disallowed-algorithm tokens."""
+    import time
+
+    pyjwt = pytest.importorskip("jwt")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_key = private_key.public_key()
+
+    issuer = "https://idp.example.com/realms/app"
+    audience = "https://app.example.com/mcp"  # == resource_uri (public_url + path)
+    server = McpServer(registry=make_registry(), settings=auth_settings("oidc", issuer=issuer))
+
+    # stub the JWKS client so nothing hits the network — hand back our public key
+    class _FakeKey:
+        key = public_key
+
+    class _FakeJwkClient:
+        def get_signing_key_from_jwt(self, _token: str) -> Any:
+            return _FakeKey()
+
+    monkeypatch.setattr(server, "_jwk_client", lambda _uri: _FakeJwkClient())
+
+    def mint(*, aud: str = audience, ttl: int = 3600) -> str:
+        payload = {"iss": issuer, "aud": aud, "sub": "u1", "exp": int(time.time()) + ttl}
+        return pyjwt.encode(payload, private_pem, algorithm="RS256")
+
+    async def rejected(token: str) -> None:
+        with pytest.raises(McpAuthError) as exc:
+            await server.authenticate({"authorization": f"Bearer {token}"})
+        assert exc.value.status == 401
+
+    # a correctly-signed, in-audience, unexpired token passes
+    await server.authenticate({"authorization": f"Bearer {mint()}"})
+    # wrong audience, expired, and a disallowed algorithm (HS256) each get a 401
+    await rejected(mint(aud="https://evil.example.com/mcp"))
+    await rejected(mint(ttl=-10))
+    await rejected(
+        pyjwt.encode(
+            {"iss": issuer, "aud": audience, "exp": int(time.time()) + 3600},
+            "a" * 32,  # length is irrelevant; the token is rejected on algorithm, not key
+            algorithm="HS256",
+        )
+    )

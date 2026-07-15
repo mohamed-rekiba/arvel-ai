@@ -29,6 +29,8 @@ import types
 from collections.abc import Callable, Mapping
 from typing import Any, Union, get_args, get_origin
 
+import anyio
+
 from .settings import McpAuthSettings, McpSettings
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -53,7 +55,9 @@ def _schema_for(annotation: Any) -> dict[str, Any]:
         arms = [a for a in get_args(annotation) if a is not type(None)]
         if len(arms) == 1:
             return _schema_for(arms[0])
-        return {"type": "string"}  # a real multi-type union is more than we promise to map
+        # a real multi-type union (int | str): leave it unconstrained rather than pick one arm
+        # and reject the others
+        return {}
     if annotation in _SCALAR_JSON:
         return {"type": _SCALAR_JSON[annotation]}
     if annotation is list or origin is list:
@@ -66,7 +70,9 @@ def _schema_for(annotation: Any) -> dict[str, Any]:
 
 def _check_type(key: str, value: Any, schema: dict[str, Any]) -> None:
     """Validate ``value`` against a ``_schema_for`` node (top-level type + array items)."""
-    expected = schema["type"]
+    expected = schema.get("type")
+    if expected is None:  # an unconstrained schema (e.g. a multi-type union) — accept anything
+        return
     py_type = _PY_TYPES[expected]
     # bool is an int subclass — never let True/False satisfy integer/number
     if isinstance(value, bool) and expected != "boolean":
@@ -169,6 +175,8 @@ class McpServer:
         self.registry = registry
         self.settings = settings if settings is not None else McpSettings()
         self.server_name = server_name
+        # one PyJWKClient per jwks_uri, so its signing-key cache survives across requests
+        self._jwk_clients: dict[str, Any] = {}
 
     # -- auth -------------------------------------------------------------------
 
@@ -186,7 +194,7 @@ class McpServer:
         header = f'Bearer resource_metadata="{public}/.well-known/oauth-protected-resource"'
         return McpAuthError(status, message, www_authenticate=header)
 
-    def authenticate(self, headers: Mapping[str, str]) -> None:
+    async def authenticate(self, headers: Mapping[str, str]) -> None:
         """Raise McpAuthError unless the request carries a valid bearer token."""
         authorization = headers.get("authorization") or headers.get("Authorization") or ""
         if not authorization.startswith("Bearer "):
@@ -199,38 +207,56 @@ class McpServer:
                 raise self._challenge("invalid token")
             return
         if mode == "oidc":
-            self._authenticate_oidc(token)
+            await self._authenticate_oidc(token)
             return
         raise self._challenge(f"unknown auth mode {mode!r}")
 
-    def _authenticate_oidc(self, token: str) -> None:
+    def _jwk_client(self, jwks_uri: str) -> Any:
+        """The cached PyJWKClient for this jwks_uri (built lazily), so we don't refetch the key
+        set on every request."""
+        client = self._jwk_clients.get(jwks_uri)
+        if client is None:
+            import jwt as pyjwt  # arvel's jwt extra
+
+            client = pyjwt.PyJWKClient(jwks_uri)
+            self._jwk_clients[jwks_uri] = client
+        return client
+
+    async def _authenticate_oidc(self, token: str) -> None:
         issuer = self._auth.issuer
         if not issuer:
             raise self._challenge("oidc auth is not configured (set ai.mcp.auth.issuer)")
         if not self._auth.audience and not self.settings.public_url:
-            # audience would degrade to a bare path — refuse rather than validate
-            # against a weak/foot-gun aud
+            # audience would degrade to a bare path — refuse rather than validate against a
+            # weak/foot-gun aud
             raise self._challenge("oidc auth needs public_url (or an explicit auth.audience)")
-        try:
-            import jwt as pyjwt  # arvel's jwt extra
-        except ImportError as exc:  # pragma: no cover
-            raise self._challenge("oidc auth needs pyjwt: uv add 'arvel[jwt]'") from exc
         jwks_uri = self._auth.jwks_uri or f"{issuer.rstrip('/')}/protocol/openid-connect/certs"
         audience = self._auth.audience or self.resource_uri
         try:
-            key = pyjwt.PyJWKClient(jwks_uri).get_signing_key_from_jwt(token).key
-            pyjwt.decode(
-                token,
-                key=key,
-                algorithms=["RS256", "ES256"],
-                issuer=issuer,
-                audience=audience,  # RFC 8707 audience binding — non-negotiable
-                # require the claims we validate — a token minted without exp
-                # would otherwise never expire
-                options={"require": ["exp", "iss", "aud"]},
-            )
+            client = self._jwk_client(jwks_uri)
+        except ImportError as exc:  # pragma: no cover
+            raise self._challenge("oidc auth needs pyjwt: uv add 'arvel[jwt]'") from exc
+        # PyJWKClient.get_signing_key_from_jwt + decode are blocking urllib I/O — run them off
+        # the event loop so an OIDC-protected server doesn't head-of-line-block on the JWKS fetch.
+        try:
+            await anyio.to_thread.run_sync(self._verify_token, client, token, audience, issuer)
         except Exception as exc:
             raise self._challenge(f"token rejected: {type(exc).__name__}") from exc
+
+    @staticmethod
+    def _verify_token(client: Any, token: str, audience: str, issuer: str) -> None:
+        import jwt as pyjwt
+
+        key = client.get_signing_key_from_jwt(token).key
+        pyjwt.decode(
+            token,
+            key=key,
+            algorithms=["RS256", "ES256"],
+            issuer=issuer,
+            audience=audience,  # RFC 8707 audience binding — non-negotiable
+            # require the claims we validate — a token minted without exp would never expire
+            options={"require": ["exp", "iss", "aud"]},
+        )
 
     def protected_resource_metadata(self) -> dict[str, Any]:
         return {

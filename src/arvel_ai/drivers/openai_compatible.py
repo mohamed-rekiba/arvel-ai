@@ -40,7 +40,7 @@ from arvel_ai.contracts import (
     Usage,
 )
 
-from ._openai_format import parse_openai_response, to_openai_payload
+from ._openai_format import decode_tool_arguments, parse_openai_response, to_openai_payload
 
 _HEALTH_TIMEOUT = 5.0  # keep the boot/health probe snappy — don't hang startup on a slow gateway
 
@@ -102,7 +102,8 @@ class OpenAICompatibleDriver:
         it no longer claims to be healthy when it isn't."""
         if not self.base_url:
             return HealthResult(
-                HealthStatus.DEGRADED, detail="not configured (AI_GATEWAY_URL unset)"
+                HealthStatus.DEGRADED,
+                detail="not configured (set config ai.drivers.openai_compatible.base_url)",
             )
         try:
             resp = await self._client().timeout(_HEALTH_TIMEOUT).get("/models")
@@ -196,7 +197,7 @@ class OpenAICompatibleDriver:
                 ToolCall(
                     id=slot["id"],
                     name=slot["name"],
-                    arguments=json.loads(slot["arguments"] or "{}"),
+                    arguments=decode_tool_arguments(slot["arguments"]),
                 )
             )
         from ._openai_format import _FINISH_REASONS  # noqa: PLC0415
@@ -232,7 +233,10 @@ class OpenAICompatibleDriver:
             self._raise_for_status(
                 response.status(), response.body(), response.header("retry-after")
             )
-        return dict(response.json())
+        body = response.json()  # None when the body isn't valid JSON
+        if not isinstance(body, dict):
+            raise AiProviderError(f"provider sent a non-JSON body (HTTP {response.status()})")
+        return body
 
     @staticmethod
     def _raise_for_status(status: int, body: str, retry_after: str | None = None) -> None:

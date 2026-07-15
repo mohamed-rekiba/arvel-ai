@@ -12,6 +12,7 @@ from typing import Any
 import msgspec
 
 from arvel_ai.contracts import (
+    AiProviderError,
     ChatRequest,
     ChatResponse,
     Message,
@@ -21,6 +22,16 @@ from arvel_ai.contracts import (
     ToolResult,
     Usage,
 )
+
+
+def decode_tool_arguments(raw: str) -> dict[str, Any]:
+    """Parse a tool-call ``arguments`` string, turning malformed JSON into an ``AiProviderError``
+    so a bad provider response surfaces as one of our errors instead of a raw ``JSONDecodeError``."""
+    try:
+        return json.loads(raw or "{}")  # type: ignore[no-any-return]
+    except json.JSONDecodeError as exc:
+        raise AiProviderError(f"provider sent invalid tool-call arguments: {exc}") from exc
+
 
 _FINISH_REASONS: dict[str, StopReason] = {
     "stop": "end_turn",
@@ -131,7 +142,9 @@ def parse_openai_response(payload: dict[str, Any], include_raw: bool = False) ->
             ToolCall(
                 id=call.get("id", ""),
                 name=function.get("name", ""),
-                arguments=json.loads(arguments) if isinstance(arguments, str) else arguments,
+                arguments=decode_tool_arguments(arguments)
+                if isinstance(arguments, str)
+                else arguments,
             )
         )
     usage = payload.get("usage") or {}

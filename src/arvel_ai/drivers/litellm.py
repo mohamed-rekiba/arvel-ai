@@ -9,7 +9,6 @@ and is loaded lazily, so an app that doesn't use it never pays for it; install i
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -37,7 +36,12 @@ from arvel_ai.contracts import (
     Usage,
 )
 
-from ._openai_format import _FINISH_REASONS, parse_openai_response, to_openai_payload
+from ._openai_format import (
+    _FINISH_REASONS,
+    decode_tool_arguments,
+    parse_openai_response,
+    to_openai_payload,
+)
 
 _HEALTH_TIMEOUT = 5.0  # keep the boot/health probe snappy — don't hang startup on a slow provider
 # transport/auth-level failures mean the provider is unusable; a request-level error (bad request,
@@ -147,7 +151,7 @@ class LiteLLMDriver:
                 ToolCall(
                     id=slot["id"],
                     name=slot["name"],
-                    arguments=json.loads(slot["arguments"] or "{}"),
+                    arguments=decode_tool_arguments(slot["arguments"]),
                 )
             )
         yield StreamEnd(

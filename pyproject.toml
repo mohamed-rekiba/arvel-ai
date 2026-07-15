@@ -39,6 +39,7 @@ dev = [
     "httpx",
     "pre-commit",
     "testcontainers",  # spins up the real Temporal server for the integration tier
+    "pyjwt[crypto]",  # exercise the OIDC MCP auth path (arvel[jwt] in production)
 ]
 
 [tool.pytest.ini_options]

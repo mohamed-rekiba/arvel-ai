@@ -268,6 +268,34 @@ async def test_stream_emits_tool_call_deltas_and_buffers_full_call() -> None:
     ]
 
 
+async def test_malformed_tool_arguments_map_to_provider_error() -> None:
+    from arvel_ai.contracts import AiProviderError
+
+    bad = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "tool_calls": [
+                        {"id": "c1", "function": {"name": "f", "arguments": "{not json"}}
+                    ]
+                },
+            }
+        ]
+    }
+    driver = driver_with(lambda request: httpx.Response(200, json=bad))
+    with pytest.raises(AiProviderError):  # not a raw JSONDecodeError escaping the taxonomy
+        await driver.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+
+async def test_non_json_body_maps_to_provider_error() -> None:
+    from arvel_ai.contracts import AiProviderError
+
+    driver = driver_with(lambda request: httpx.Response(200, text="not json at all"))
+    with pytest.raises(AiProviderError):  # not a TypeError from dict(None)
+        await driver.chat(ChatRequest(messages=[Message(role="user", content="x")]))
+
+
 async def test_health_probes_models_and_reports_real_status() -> None:
     from arvel.contracts import HealthStatus
 
@@ -313,7 +341,7 @@ async def test_health_degraded_when_no_base_url() -> None:
     driver = OpenAICompatibleDriver(base_url=None)
     result = await driver.health()
     assert result.status is HealthStatus.DEGRADED  # not a false OK
-    assert "AI_GATEWAY_URL" in (result.detail or "")
+    assert "base_url" in (result.detail or "")  # names the real config knob, not a stray env var
 
 
 async def test_driver_pools_one_client_and_aclose_drains_it() -> None:

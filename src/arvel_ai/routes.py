@@ -7,6 +7,7 @@ and the RFC 9728 protected-resource metadata document.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from arvel import Route, config
@@ -18,7 +19,10 @@ from arvel_ai.mcp import McpAuthError, McpServer, registry
 from arvel_ai.settings import AiSettings
 
 
+@lru_cache(maxsize=1)
 def _server() -> McpServer:
+    # one server for the process, so its JWKS-client cache (OIDC) survives across requests
+    # instead of a cold fetch each time; settings are fixed after boot
     return McpServer(
         registry=registry,
         settings=AiSettings().mcp,
@@ -29,7 +33,7 @@ def _server() -> McpServer:
 async def mcp_endpoint(request: Any) -> Response:
     server = _server()
     try:
-        server.authenticate({"authorization": request.header("authorization") or ""})
+        await server.authenticate({"authorization": request.header("authorization") or ""})
     except McpAuthError as exc:
         headers = {"WWW-Authenticate": exc.www_authenticate} if exc.www_authenticate else {}
         return Response(content={"error": str(exc)}, status=exc.status, headers=headers)
