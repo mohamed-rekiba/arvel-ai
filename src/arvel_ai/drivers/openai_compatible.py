@@ -3,10 +3,10 @@ Ollama's OpenAI route, or OpenAI itself.
 
 HTTP + SSE go through arvel's ``Http`` client (``arvel.client.PendingRequest``): arvel
 core owns pooling, timeouts, and SSE parsing (``ServerSentEvent``). This driver is the
-anti-corruption boundary (DR-0041) — it maps transport errors and OpenAI status codes to
-the ``AiError`` taxonomy so no engine type crosses the public surface. It still catches
-httpx exception *types* for transport failures (timeouts/connection resets), which arvel
-surfaces raw; httpx is arvel core and the import-linter permits it in exactly this module.
+anti-corruption boundary (DR-0041) — it maps arvel's transport exceptions
+(``RequestTimedOut``/``TransportFailed``) and OpenAI status codes to the ``AiError``
+taxonomy so no engine type crosses the public surface. It never imports httpx: arvel's
+client fully wraps the engine (DR-0044).
 
 The API key comes from the env var NAMED in config (api_key_env) — never from
 config values.
@@ -19,7 +19,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-from arvel.client import PendingRequest, RequestFailed
+from arvel.client import PendingRequest, RequestFailed, RequestTimedOut, TransportFailed
 
 from arvel_ai.contracts import (
     AiAuthError,
@@ -62,7 +62,7 @@ class OpenAICompatibleDriver:
         model: str | None = None,
         timeout: float = 60.0,
         include_raw: bool = False,
-        transport: Any = None,  # test seam: an httpx.MockTransport
+        transport: Any = None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.api_key_env = api_key_env
@@ -95,7 +95,6 @@ class OpenAICompatibleDriver:
         tool_calls: dict[int, dict[str, Any]] = {}
         finish = "stop"
         model = ""
-        import httpx
 
         try:
             async for event in self._client().stream("POST", "/chat/completions", json=payload):
@@ -123,9 +122,9 @@ class OpenAICompatibleDriver:
         except RequestFailed as exc:  # non-2xx status — map it like _post does
             resp = exc.response
             self._raise_for_status(resp.status(), resp.body(), resp.header("retry-after"))
-        except httpx.TimeoutException as exc:
+        except RequestTimedOut as exc:
             raise AiTimeout(str(exc)) from exc
-        except httpx.HTTPError as exc:
+        except TransportFailed as exc:
             # a transport failure must not leak the engine type across the public
             # surface (DR-0041) — map to the taxonomy like _post does
             raise AiProviderError(str(exc)) from exc
@@ -161,13 +160,11 @@ class OpenAICompatibleDriver:
     # -- error mapping (S1 taxonomy) ------------------------------------------
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        import httpx
-
         try:
             response = await self._client().post(path, json=payload)
-        except httpx.TimeoutException as exc:
+        except RequestTimedOut as exc:
             raise AiTimeout(str(exc)) from exc
-        except httpx.HTTPError as exc:
+        except TransportFailed as exc:
             raise AiProviderError(str(exc)) from exc
         if response.failed():
             self._raise_for_status(

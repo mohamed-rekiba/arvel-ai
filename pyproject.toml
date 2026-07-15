@@ -55,8 +55,9 @@ include_external_packages = true
 # heavy engines never appear on the module import path — drivers lazy-import
 # them inside the method that uses them. List each engine you add here.
 # The anti-corruption layer, enforced: no engine type ever crosses into the
-# public surface — litellm/httpx exist only inside their own driver modules,
-# lazily imported (DR-0041).
+# public surface — litellm exists only inside its own driver module,
+# the openai_compatible driver goes through arvel's Http client,
+# which wraps the engine.
 [[tool.importlinter.contracts]]
 name = "heavy engines stay out of the import path"
 type = "forbidden"
@@ -65,6 +66,5 @@ forbidden_modules = ["litellm", "httpx", "temporalio"]
 # the ONLY sanctioned edges: each engine inside its own driver module, lazily
 ignore_imports = [
     "arvel_ai.drivers.litellm -> litellm",
-    "arvel_ai.drivers.openai_compatible -> httpx",
     "arvel_ai.workflows.drivers.temporal -> temporalio",
 ]
