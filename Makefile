@@ -2,7 +2,7 @@
 RUN ?= uv run
 
 .DEFAULT_GOAL := help
-.PHONY: help sync lint format format-check typecheck imports test test-integration check hooks clean
+.PHONY: help sync lint format format-check typecheck imports test test-integration check pre-commit hooks clean
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -34,6 +34,9 @@ test-integration:  ## real-service tiers (needs Docker / provider keys / AI_TEMP
 	AI_TEMPORAL_TARGET=localhost:7233 $(RUN) pytest tests/test_workflow_temporal.py
 
 check: lint format-check typecheck imports test  ## Everything CI runs
+
+pre-commit:  ## Run all pre-commit hooks across the repo
+	$(RUN) pre-commit run --all-files
 
 hooks:  ## Install pre-commit git hooks
 	$(RUN) pre-commit install
