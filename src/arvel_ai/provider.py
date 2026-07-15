@@ -33,7 +33,7 @@ class AiServiceProvider(ServiceProvider):
 
     def _settings(self) -> AiSettings:
         # scope to THIS app's config section (like Manager(app) does), not global
-        return AiSettings.from_source(self.app.make("config").get("ai"))
+        return AiSettings.from_source(self.app.config("ai"))
 
     def boot(self) -> None:
         self.commands(cli)
