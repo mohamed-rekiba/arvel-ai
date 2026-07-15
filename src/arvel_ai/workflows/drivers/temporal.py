@@ -13,7 +13,6 @@ in packages/ai-workflows.md.
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from arvel.support.manager import MissingExtraError
@@ -48,7 +47,9 @@ class TemporalWorkflowDriver:
     ) -> WorkflowHandle:
         client = await self._connect()
 
-        workflow_id = f"{name}-{uuid.uuid4().hex[:12]}"
+        import uuid
+
+        workflow_id = f"{name}-{uuid.uuid7().hex[:12]}"
         # positional args map to Temporal's arg list; the registered workflow's
         # run signature is (ctx-less) — the app's worker adapts @workflow fns
         await client.start_workflow(
