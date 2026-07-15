@@ -105,7 +105,9 @@ async def test_chat_round_trip_parses_tool_calls_and_usage() -> None:
     response = await driver.chat(ChatRequest(messages=[Message(role="user", content="weather?")]))
     assert seen["path"] == "/v1/chat/completions"
     assert response.stop_reason == "tool_use"
-    assert response.tool_calls == [ToolCall(id="call_1", name="get_weather", arguments={"city": "Paris"})]
+    assert response.tool_calls == [
+        ToolCall(id="call_1", name="get_weather", arguments={"city": "Paris"})
+    ]
     assert response.usage.input_tokens == 10
     assert response.text == "checking"
 
@@ -119,10 +121,14 @@ async def test_stream_yields_deltas_then_end() -> None:
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=sse.encode(), headers={"content-type": "text/event-stream"}
+        )
 
     driver = driver_with(handler)
-    events = [e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))]
+    events = [
+        e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))
+    ]
     assert [d.text for d in events[:-1] if isinstance(d, TextDelta)] == ["He", "y"]
     end = events[-1]
     assert isinstance(end, StreamEnd)
@@ -199,8 +205,12 @@ async def test_stream_skips_malformed_sse_chunk() -> None:
         "data: [DONE]\n\n"
     )
     driver = driver_with(
-        lambda request: httpx.Response(200, content=sse.encode(), headers={"content-type": "text/event-stream"})
+        lambda request: httpx.Response(
+            200, content=sse.encode(), headers={"content-type": "text/event-stream"}
+        )
     )
-    events = [e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))]
+    events = [
+        e async for e in driver.stream(ChatRequest(messages=[Message(role="user", content="x")]))
+    ]
     assert isinstance(events[-1], StreamEnd)
     assert events[-1].response.text == "ab"  # the bad chunk was skipped, not fatal

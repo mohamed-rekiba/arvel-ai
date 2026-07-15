@@ -43,7 +43,9 @@ class WorkflowDriver(Protocol):
     """What every workflow engine implements. Registration of the workflow
     functions is shared (the registry below); the driver only executes."""
 
-    async def start(self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> WorkflowHandle: ...
+    async def start(
+        self, name: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> WorkflowHandle: ...
 
     async def signal(self, workflow_id: str, name: str, payload: Any = None) -> None: ...
 
@@ -59,9 +61,7 @@ class WorkflowRegistry:
     def __init__(self) -> None:
         self._fns: dict[str, WorkflowFn] = {}
 
-    def register(
-        self, name: str | None = None
-    ) -> Callable[[WorkflowFn], WorkflowFn]:
+    def register(self, name: str | None = None) -> Callable[[WorkflowFn], WorkflowFn]:
         def decorate(fn: WorkflowFn) -> WorkflowFn:
             self._fns[name or fn.__name__] = fn
             return fn

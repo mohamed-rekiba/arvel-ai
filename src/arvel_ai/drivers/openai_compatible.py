@@ -184,9 +184,7 @@ class OpenAICompatibleDriver:
         return dict(response.json())
 
     @staticmethod
-    def _raise_for_status(
-        status: int, body: str, retry_after: str | None = None
-    ) -> None:
+    def _raise_for_status(status: int, body: str, retry_after: str | None = None) -> None:
         detail = f"HTTP {status}: {body[:300]}"
         if status in (401, 403):
             raise AiAuthError(detail)

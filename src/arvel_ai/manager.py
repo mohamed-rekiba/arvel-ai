@@ -160,7 +160,5 @@ class AiManager(Manager):
             )
         request = EmbedRequest(texts=texts, model=self.resolve_model(model))
         await self._dispatch(AiEmbedding(self.default_driver(), request))
-        with span(
-            "ai.embed", kind="client", attributes={"ai.driver": self.default_driver()}
-        ):
+        with span("ai.embed", kind="client", attributes={"ai.driver": self.default_driver()}):
             return await driver.embed(request)

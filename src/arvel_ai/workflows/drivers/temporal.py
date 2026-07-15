@@ -83,7 +83,11 @@ class TemporalWorkflowDriver:
             except Exception as exc:
                 error = str(exc)
         return WorkflowStatus(
-            id=workflow_id, name=description.workflow_type or "", state=state, result=result, error=error
+            id=workflow_id,
+            name=description.workflow_type or "",
+            state=state,
+            result=result,
+            error=error,
         )
 
 

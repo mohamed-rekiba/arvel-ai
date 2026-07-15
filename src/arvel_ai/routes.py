@@ -32,9 +32,7 @@ async def mcp_endpoint(request: Any) -> Response:
         server.authenticate({"authorization": request.header("authorization") or ""})
     except McpAuthError as exc:
         headers = {"WWW-Authenticate": exc.www_authenticate} if exc.www_authenticate else {}
-        return Response(
-            content={"error": str(exc)}, status=exc.status, headers=headers
-        )
+        return Response(content={"error": str(exc)}, status=exc.status, headers=headers)
     result = await server.handle(await request.json() or {})
     if result is None:  # notification — acknowledged, no body
         return Response(content=None, status=202)
@@ -46,6 +44,4 @@ async def resource_metadata(request: Any) -> dict[str, Any]:
 
 
 Route.post(AiSettings().mcp.path, mcp_endpoint, name="ai.mcp")
-Route.get(
-    "/.well-known/oauth-protected-resource", resource_metadata, name="ai.mcp.metadata"
-)
+Route.get("/.well-known/oauth-protected-resource", resource_metadata, name="ai.mcp.metadata")

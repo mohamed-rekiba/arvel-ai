@@ -138,7 +138,9 @@ def test_token_mode_accepts_matching_bearer(monkeypatch: pytest.MonkeyPatch) -> 
     server.authenticate({"authorization": "Bearer s3cret"})  # no raise
 
 
-@pytest.mark.parametrize("header", [{}, {"authorization": "Bearer wrong"}, {"authorization": "Basic x"}])
+@pytest.mark.parametrize(
+    "header", [{}, {"authorization": "Bearer wrong"}, {"authorization": "Basic x"}]
+)
 def test_token_mode_rejects_with_challenge(
     monkeypatch: pytest.MonkeyPatch, header: dict[str, str]
 ) -> None:

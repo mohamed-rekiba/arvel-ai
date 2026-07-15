@@ -54,7 +54,9 @@ class QueueWorkflowDriver:
         self._signals.setdefault(wid, {})
         return WorkflowHandle(id=wid, name=name)
 
-    async def _execute(self, handle: WorkflowHandle, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    async def _execute(
+        self, handle: WorkflowHandle, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> None:
         fn = registry.get(handle.name)
         ctx = _QueueContext(handle.id, self._signals.get(handle.id, {}))
         try:

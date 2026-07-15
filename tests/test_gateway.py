@@ -35,13 +35,19 @@ from arvel_ai.drivers.fake import FakeAiDriver
 
 def test_message_accepts_str_and_parts() -> None:
     assert Message(role="user", content="hi").content == "hi"
-    m = Message(role="assistant", content=[Text(text="a"), ToolCall(id="1", name="t", arguments={})])
+    m = Message(
+        role="assistant", content=[Text(text="a"), ToolCall(id="1", name="t", arguments={})]
+    )
     assert isinstance(m.content[0], Text)
 
 
 def test_chat_response_conveniences() -> None:
     resp = ChatResponse(
-        content=[Text(text="hello "), ToolCall(id="1", name="t", arguments={"a": 1}), Text(text="world")],
+        content=[
+            Text(text="hello "),
+            ToolCall(id="1", name="t", arguments={"a": 1}),
+            Text(text="world"),
+        ],
         stop_reason="tool_use",
         model="m",
         usage=Usage(input_tokens=1, output_tokens=2),
@@ -81,7 +87,9 @@ async def test_fake_driver_scripts_replies_and_records() -> None:
 
 async def test_fake_driver_streams_deltas_then_end() -> None:
     fake = FakeAiDriver(replies=["ab"])
-    events = [e async for e in fake.stream(ChatRequest(messages=[Message(role="user", content="x")]))]
+    events = [
+        e async for e in fake.stream(ChatRequest(messages=[Message(role="user", content="x")]))
+    ]
     assert all(isinstance(e, TextDelta) for e in events[:-1])
     assert isinstance(events[-1], StreamEnd)
     assert "".join(d.text for d in events[:-1]) == "ab"
