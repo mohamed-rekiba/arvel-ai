@@ -54,6 +54,35 @@ async def test_call_validates_arguments_at_the_boundary() -> None:
         await reg.call("add", {"a": 1, "b": 2, "c": 3})
 
 
+def test_registry_maps_non_scalar_annotations() -> None:
+    reg = ToolRegistry()
+
+    @reg.tool()
+    async def search(tags: list[str], filters: dict[str, int], limit: int | None = None) -> str:
+        return "ok"
+
+    props = {t["name"]: t for t in reg.descriptors()}["search"]["inputSchema"]["properties"]
+    assert props["tags"] == {"type": "array", "items": {"type": "string"}}
+    assert props["filters"] == {"type": "object"}
+    assert props["limit"] == {"type": "integer"}  # Optional[int] -> the non-None arm
+
+
+async def test_call_validates_array_and_object_arguments() -> None:
+    reg = ToolRegistry()
+
+    @reg.tool()
+    async def search(tags: list[str], filters: dict[str, int]) -> int:
+        return len(tags) + len(filters)
+
+    assert await reg.call("search", {"tags": ["a", "b"], "filters": {"x": 1}}) == 3
+    with pytest.raises(ValueError, match="expected array"):
+        await reg.call("search", {"tags": "not-a-list", "filters": {}})
+    with pytest.raises(ValueError, match="expected string"):  # bad array item
+        await reg.call("search", {"tags": [1, 2], "filters": {}})
+    with pytest.raises(ValueError, match="expected object"):
+        await reg.call("search", {"tags": [], "filters": []})
+
+
 def test_global_decorator_registers() -> None:
     @mcp_tool(description="probe")
     def probe() -> str:

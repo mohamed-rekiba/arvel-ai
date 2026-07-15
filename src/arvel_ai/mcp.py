@@ -25,20 +25,57 @@ from __future__ import annotations
 import hmac
 import inspect
 import os
+import types
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Union, get_args, get_origin
 
 from .settings import McpAuthSettings, McpSettings
 
 PROTOCOL_VERSION = "2025-06-18"
 
-_JSON_TYPES: dict[type, str] = {str: "string", int: "integer", float: "number", bool: "boolean"}
+_SCALAR_JSON: dict[Any, str] = {str: "string", int: "integer", float: "number", bool: "boolean"}
 _PY_TYPES: dict[str, type | tuple[type, ...]] = {
     "string": str,
     "integer": int,
     "number": (int, float),
     "boolean": bool,
+    "array": list,
+    "object": dict,
 }
+
+
+def _schema_for(annotation: Any) -> dict[str, Any]:
+    """A JSON-Schema node for a Python parameter annotation. Maps scalars, ``list[T]`` (with
+    ``items``), ``dict`` (object), and ``Optional[T]``/``T | None`` (the non-None arm); anything
+    else — including an unannotated parameter — falls back to ``"string"`` (the LCD subset)."""
+    origin = get_origin(annotation)
+    if origin is types.UnionType or origin is Union:  # Optional[T] / T | None
+        arms = [a for a in get_args(annotation) if a is not type(None)]
+        if len(arms) == 1:
+            return _schema_for(arms[0])
+        return {"type": "string"}  # a genuine multi-type union isn't in the LCD subset
+    if annotation in _SCALAR_JSON:
+        return {"type": _SCALAR_JSON[annotation]}
+    if annotation is list or origin is list:
+        args = get_args(annotation)
+        return {"type": "array", "items": _schema_for(args[0]) if args else {"type": "string"}}
+    if annotation is dict or origin is dict:
+        return {"type": "object"}
+    return {"type": "string"}
+
+
+def _check_type(key: str, value: Any, schema: dict[str, Any]) -> None:
+    """Validate ``value`` against a ``_schema_for`` node (top-level type + array items)."""
+    expected = schema["type"]
+    py_type = _PY_TYPES[expected]
+    # bool is an int subclass — never let True/False satisfy integer/number
+    if isinstance(value, bool) and expected != "boolean":
+        raise ValueError(f"argument {key!r}: expected {expected}")
+    if not isinstance(value, py_type):
+        raise ValueError(f"argument {key!r}: expected {expected}")
+    if expected == "array" and "items" in schema and isinstance(value, list):
+        for item in value:  # already a list; the guard just re-narrows it for mypy
+            _check_type(key, item, schema["items"])
 
 
 class McpAuthError(Exception):
@@ -62,11 +99,7 @@ class ToolRegistry:
             properties: dict[str, Any] = {}
             required: list[str] = []
             for param in inspect.signature(fn, eval_str=True).parameters.values():
-                # ponytail: v1 tool args are scalars; an unmapped annotation
-                # (list[str], unannotated) falls back to "string" — add a
-                # JSON-Schema type here when a tool needs non-scalar args
-                json_type = _JSON_TYPES.get(param.annotation, "string")
-                properties[param.name] = {"type": json_type}
+                properties[param.name] = _schema_for(param.annotation)
                 if param.default is inspect.Parameter.empty:
                     required.append(param.name)
             self._tools[tool_name] = {
@@ -103,12 +136,7 @@ class ToolRegistry:
         for key, value in arguments.items():
             if key not in properties:
                 raise ValueError(f"unexpected argument {key!r}")
-            expected = properties[key]["type"]
-            py_type = _PY_TYPES[expected]
-            if isinstance(value, bool) and expected != "boolean":
-                raise ValueError(f"argument {key!r}: expected {expected}")
-            if not isinstance(value, py_type):
-                raise ValueError(f"argument {key!r}: expected {expected}")
+            _check_type(key, value, properties[key])
         result = entry["fn"](**dict(arguments))
         if inspect.isawaitable(result):
             result = await result
