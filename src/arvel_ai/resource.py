@@ -34,14 +34,14 @@ class AiResource:
         driver_name = self._driver_name()
         try:
             driver = self._manager.driver()
-        except Exception as exc:  # MissingExtraError / bad config
+            health = getattr(driver, "health", None)
+            if callable(health):
+                result = health()
+                if hasattr(result, "__await__"):
+                    result = await result
+                return result  # type: ignore[no-any-return]
+        except Exception as exc:  # MissingExtraError, bad config, or a raising health()
             return HealthResult(HealthStatus.FAILED, detail=f"{driver_name}: {exc}")
-        health = getattr(driver, "health", None)
-        if callable(health):
-            result = health()
-            if hasattr(result, "__await__"):
-                result = await result
-            return result  # type: ignore[no-any-return]
         return HealthResult(HealthStatus.OK, detail=f"{driver_name} (configured)")
 
     async def disconnect(self) -> None:

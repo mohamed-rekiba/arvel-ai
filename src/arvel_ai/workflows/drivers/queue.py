@@ -101,5 +101,7 @@ class QueueWorkflowDriver:
         return handle
 
     async def resume(self, workflow_id: str) -> None:
+        if workflow_id not in self._pending:
+            raise KeyError(f"no deferred workflow {workflow_id!r} to resume")
         name, args, kwargs = self._pending.pop(workflow_id)
         await self._execute(WorkflowHandle(id=workflow_id, name=name), args, kwargs)
