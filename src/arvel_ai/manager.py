@@ -9,7 +9,7 @@ for custom drivers.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from arvel.support.manager import Manager
 
@@ -29,6 +29,7 @@ from .events import AiEmbedding, AiRequestFailed, AiRequestSending, AiResponseRe
 from .settings import AiSettings, _as_kwargs
 
 MessagesInput = str | list[Message] | ChatRequest
+T = TypeVar("T")
 
 
 class AiManager(Manager):
@@ -145,7 +146,7 @@ class AiManager(Manager):
                     )
                 yield delta
 
-    async def structured(self, schema: type, messages: MessagesInput, **kwargs: Any) -> Any:
+    async def structured(self, schema: type[T], messages: MessagesInput, **kwargs: Any) -> T:
         response = await self.chat(messages, response_schema=schema, **kwargs)
         return response.structured(schema)
 

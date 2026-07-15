@@ -8,9 +8,11 @@ boundary; nothing from litellm/httpx/provider SDKs ever crosses into here
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 import msgspec
+
+T = TypeVar("T")
 
 Role = Literal["user", "assistant"]
 StopReason = Literal["end_turn", "max_tokens", "tool_use", "refusal", "other"]
@@ -99,8 +101,9 @@ class ChatResponse(msgspec.Struct):
     def tool_calls(self) -> list[ToolCall]:
         return [p for p in self.content if isinstance(p, ToolCall)]
 
-    def structured(self, schema: type) -> Any:
-        """Decode the text content into ``schema`` (a msgspec Struct type)."""
+    def structured(self, schema: type[T]) -> T:
+        """Decode the text content into ``schema`` (a msgspec Struct type) —
+        generic, so the caller gets a typed instance back, not ``Any``."""
         return msgspec.json.decode(self.text.encode(), type=schema)
 
 
