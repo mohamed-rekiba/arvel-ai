@@ -1,5 +1,12 @@
 """Driver for any OpenAI-format endpoint: a deployed LiteLLM proxy, vLLM,
-Ollama's OpenAI route, or OpenAI itself. Engine: httpx (uv add 'arvel-ai[httpx]').
+Ollama's OpenAI route, or OpenAI itself.
+
+HTTP + SSE go through arvel's ``Http`` client (``arvel.client.PendingRequest``): arvel
+core owns pooling, timeouts, and SSE parsing (``ServerSentEvent``). This driver is the
+anti-corruption boundary (DR-0041) — it maps transport errors and OpenAI status codes to
+the ``AiError`` taxonomy so no engine type crosses the public surface. It still catches
+httpx exception *types* for transport failures (timeouts/connection resets), which arvel
+surfaces raw; httpx is arvel core and the import-linter permits it in exactly this module.
 
 The API key comes from the env var NAMED in config (api_key_env) — never from
 config values.
@@ -12,7 +19,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-from arvel.support.manager import MissingExtraError
+from arvel.client import PendingRequest, RequestFailed
 
 from arvel_ai.contracts import (
     AiAuthError,
@@ -64,32 +71,23 @@ class OpenAICompatibleDriver:
         self.include_raw = include_raw
         self._transport = transport
 
-    # ponytail: a client per call; pool via the DR-0039 lifecycle when it matters
-    def _httpx(self) -> Any:
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover
-            raise MissingExtraError("openai_compatible", extra="httpx", package="arvel-ai") from exc
+    def _client(self) -> PendingRequest:
         if not self.base_url:
             raise AiInvalidRequest(
                 "openai_compatible driver has no base_url - set config ai.drivers.openai_compatible.base_url"
             )
-        headers = {}
+        req = (
+            PendingRequest(transport=self._transport).base_url(self.base_url).timeout(self.timeout)
+        )
         key = os.environ.get(self.api_key_env, "")
         if key:
-            headers["Authorization"] = f"Bearer {key}"
-        return httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=headers,
-            timeout=self.timeout,
-            transport=self._transport,
-        )
+            req = req.with_token(key)
+        return req
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         payload = to_openai_payload(request, self.model)
-        async with self._httpx() as client:
-            response = await self._post(client, "/chat/completions", payload)
-        return parse_openai_response(response, include_raw=self.include_raw)
+        data = await self._post("/chat/completions", payload)
+        return parse_openai_response(data, include_raw=self.include_raw)
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatDelta]:
         payload = to_openai_payload(request, self.model) | {"stream": True}
@@ -99,44 +97,38 @@ class OpenAICompatibleDriver:
         model = ""
         import httpx
 
-        async with self._httpx() as client:
-            try:
-                async with client.stream("POST", "/chat/completions", json=payload) as resp:
-                    if resp.status_code >= 400:
-                        await resp.aread()
-                        retry_after = resp.headers.get("retry-after")
-                        self._raise_for_status(resp.status_code, resp.text, retry_after)
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[len("data:") :].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue  # skip a partial/keepalive chunk rather than crash the stream
-                        model = chunk.get("model", model)
-                        choice = (chunk.get("choices") or [{}])[0]
-                        finish = choice.get("finish_reason") or finish
-                        delta = choice.get("delta") or {}
-                        if delta.get("content"):
-                            text_parts.append(delta["content"])
-                            yield TextDelta(text=delta["content"])
-                        for tc in delta.get("tool_calls") or []:
-                            slot = tool_calls.setdefault(
-                                tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
-                            )
-                            slot["id"] = tc.get("id") or slot["id"]
-                            fn = tc.get("function") or {}
-                            slot["name"] = fn.get("name") or slot["name"]
-                            slot["arguments"] += fn.get("arguments") or ""
-            except httpx.TimeoutException as exc:
-                raise AiTimeout(str(exc)) from exc
-            except httpx.HTTPError as exc:
-                # a transport failure must not leak the engine type across the
-                # public surface (DR-0041) — map to the taxonomy like _post does
-                raise AiProviderError(str(exc)) from exc
+        try:
+            async for event in self._client().stream("POST", "/chat/completions", json=payload):
+                if event.data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(event.data)
+                except json.JSONDecodeError:
+                    continue  # skip a partial/keepalive chunk rather than crash the stream
+                model = chunk.get("model", model)
+                choice = (chunk.get("choices") or [{}])[0]
+                finish = choice.get("finish_reason") or finish
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    text_parts.append(delta["content"])
+                    yield TextDelta(text=delta["content"])
+                for tc in delta.get("tool_calls") or []:
+                    slot = tool_calls.setdefault(
+                        tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
+                    )
+                    slot["id"] = tc.get("id") or slot["id"]
+                    fn = tc.get("function") or {}
+                    slot["name"] = fn.get("name") or slot["name"]
+                    slot["arguments"] += fn.get("arguments") or ""
+        except RequestFailed as exc:  # non-2xx status — map it like _post does
+            resp = exc.response
+            self._raise_for_status(resp.status(), resp.body(), resp.header("retry-after"))
+        except httpx.TimeoutException as exc:
+            raise AiTimeout(str(exc)) from exc
+        except httpx.HTTPError as exc:
+            # a transport failure must not leak the engine type across the public
+            # surface (DR-0041) — map to the taxonomy like _post does
+            raise AiProviderError(str(exc)) from exc
         content: list[Any] = [Text(text="".join(text_parts))] if text_parts else []
         for slot in tool_calls.values():
             content.append(
@@ -158,8 +150,7 @@ class OpenAICompatibleDriver:
 
     async def embed(self, request: EmbedRequest) -> EmbedResponse:
         payload = {"input": request.texts, "model": request.model or self.model}
-        async with self._httpx() as client:
-            data = await self._post(client, "/embeddings", payload)
+        data = await self._post("/embeddings", payload)
         usage = data.get("usage") or {}
         return EmbedResponse(
             vectors=[item["embedding"] for item in data.get("data", [])],
@@ -169,18 +160,19 @@ class OpenAICompatibleDriver:
 
     # -- error mapping (S1 taxonomy) ------------------------------------------
 
-    async def _post(self, client: Any, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         import httpx
 
         try:
-            response = await client.post(path, json=payload)
+            response = await self._client().post(path, json=payload)
         except httpx.TimeoutException as exc:
             raise AiTimeout(str(exc)) from exc
         except httpx.HTTPError as exc:
             raise AiProviderError(str(exc)) from exc
-        if response.status_code >= 400:
-            retry_after = response.headers.get("retry-after")
-            self._raise_for_status(response.status_code, response.text, retry_after)
+        if response.failed():
+            self._raise_for_status(
+                response.status(), response.body(), response.header("retry-after")
+            )
         return dict(response.json())
 
     @staticmethod

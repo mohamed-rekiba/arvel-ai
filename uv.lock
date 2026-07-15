@@ -313,9 +313,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-httpx = [
-    { name = "httpx" },
-]
 litellm = [
     { name = "litellm" },
 ]
@@ -337,12 +334,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "arvel", editable = "../arvel" },
-    { name = "httpx", marker = "extra == 'httpx'" },
     { name = "litellm", marker = "extra == 'litellm'" },
     { name = "msgspec" },
     { name = "temporalio", marker = "extra == 'temporal'" },
 ]
-provides-extras = ["litellm", "httpx", "temporal"]
+provides-extras = ["litellm", "temporal"]
 
 [package.metadata.requires-dev]
 dev = [

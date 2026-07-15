@@ -12,10 +12,10 @@ dependencies = ["arvel", "msgspec"]
 arvel = { path = "../arvel", editable = true }
 
 # Each heavy driver engine gets an extra — apps install only what they use, and
-# MissingExtraError points at the fix: uv add 'arvel-ai[<extra>]'.
+# MissingExtraError points at the fix: uv add 'arvel-ai[<extra>]'. httpx is not
+# here: it's an arvel core dependency, so the openai_compatible driver always has it.
 [project.optional-dependencies]
 litellm = ["litellm"]
-httpx = ["httpx"]
 temporal = ["temporalio"]
 
 # Installing this package auto-registers the provider — the host app edits nothing.
