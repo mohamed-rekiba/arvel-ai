@@ -30,7 +30,7 @@ build-backend = "hatchling.build"
 packages = ["src/arvel_ai"]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "import-linter", "httpx"]
+dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "import-linter", "httpx", "pre-commit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
