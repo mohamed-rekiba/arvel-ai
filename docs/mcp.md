@@ -7,10 +7,12 @@ agents is a deliberate act.
 
 ## Expose a tool
 
-Decorate a function — sync or async. Its signature becomes the tool's input schema:
+Decorate a function — sync or async — and drop it in `app/mcp_tools/`. Its signature becomes the
+tool's input schema; every module in that folder is imported at boot, so the tool is live the
+moment the file exists:
 
 ```python
-# app/mcp_tools.py
+# app/mcp_tools/order_status.py
 from arvel_ai.mcp import mcp_tool
 
 @mcp_tool(description="Look up an order's status by id")
@@ -19,7 +21,7 @@ async def order_status(order_id: int) -> str:
     return order.status.value
 ```
 
-Turn the server on and list the modules that hold your tools:
+Turn the server on — no tool wiring needed:
 
 ```python
 # config/ai.py
@@ -28,7 +30,7 @@ ai = {
         "enabled": True,
         "public_url": "https://shop.example.com",   # canonical https URL (required when enabled)
         "path": "/mcp",                              # where the endpoint mounts (default /mcp)
-        "tools": ["app.mcp_tools"],                  # modules to import at boot so @mcp_tool runs
+        # tools_dir: "app/mcp_tools" is the default — every *.py in it is autoloaded
         "auth": {"mode": "token", "token_env": "MCP_TOKEN"},
     },
 }
@@ -42,9 +44,11 @@ groups:
   where to authenticate
 
 Your tools aren't routes, so they don't live in `routes/`. They're plain functions registered by
-the `@mcp_tool` decorator, and the server discovers them by **importing every module you list in
-`mcp.tools`** at boot. Keep them wherever suits your app — one `app/mcp_tools.py`, or several
-modules; just list each in `mcp.tools`.
+the `@mcp_tool` decorator, and the server discovers them by **importing every `*.py` under
+`app/mcp_tools/`** at boot — the same zero-wiring convention `config/` uses. One tool per file, or
+group related ones; a leading-underscore file (`_helpers.py`) is skipped. Need a tool to live
+elsewhere (a package, a shared module)? List it explicitly in `mcp.tools` and it's imported
+alongside the folder.
 
 Tool input schemas derive from your function signatures — scalars (`str`/`int`/`float`/`bool`),
 `list[T]` (with item type), `dict`, and `Optional[T]`; a parameter with no default is `required`.
@@ -130,8 +134,8 @@ To assert a single tool in isolation, build a `ToolRegistry`, register the funct
 - **`public_url` is required when enabled** — the metadata document and the 401 challenge are built
   from it; a wrong value breaks client login silently.
 - **OIDC needs `arvel[jwt]`** (pyjwt) for JWKS validation.
-- **Forgot to list the module in `mcp.tools`** — the decorator never runs, so the tool never appears
-  in `tools/list`.
+- **Tool file outside `app/mcp_tools/`** — it isn't autoloaded, so the decorator never runs and the
+  tool never appears in `tools/list`. Move it into the folder, or list it in `mcp.tools`.
 - **Testing against a real client:** `npx @modelcontextprotocol/inspector` speaks the same protocol
   — point it at `http://localhost:8000/mcp` with your dev token.
 

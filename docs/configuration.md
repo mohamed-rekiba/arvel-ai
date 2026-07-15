@@ -56,7 +56,8 @@ Provider keys use each provider's standard env var (`ANTHROPIC_API_KEY`, `OPENAI
 | `enabled` | bool | `False` | mount the MCP server (off by default — exposing your app is deliberate) |
 | `path` | str | `"/mcp"` | where the JSON-RPC endpoint mounts |
 | `public_url` | str \| None | `None` | canonical https URL; **required** when enabled |
-| `tools` | list[str] | `[]` | modules to import at boot so their `@mcp_tool`s register |
+| `tools_dir` | str | `"app/mcp_tools"` | folder autoloaded at boot — every `*.py` in it registers its `@mcp_tool`s |
+| `tools` | list[str] | `[]` | extra modules to import (override) for tools living outside `tools_dir` |
 | `auth` | table | — | see below |
 
 ### `mcp.auth`

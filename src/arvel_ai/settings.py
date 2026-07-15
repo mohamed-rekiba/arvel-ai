@@ -50,7 +50,8 @@ class McpSettings(msgspec.Struct):
     enabled: bool = False  # off by default — exposing the app to agents is deliberate
     path: str = "/mcp"
     public_url: str | None = None  # canonical https URL (required when enabled)
-    tools: list[str] = msgspec.field(default_factory=list)  # modules to import at boot
+    tools_dir: str = "app/mcp_tools"  # autoloaded folder — every *.py registers its @mcp_tools
+    tools: list[str] = msgspec.field(default_factory=list)  # explicit extra modules (override)
     auth: McpAuthSettings = msgspec.field(default_factory=McpAuthSettings)
 
 

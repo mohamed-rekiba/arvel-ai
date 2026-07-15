@@ -13,6 +13,21 @@ from .settings import AiSettings
 from .workflows.manager import WorkflowManager
 
 
+def _import_tools(base_path: str, tools_dir: str, modules: list[str]) -> None:
+    """Load the app's MCP tools so their ``@mcp_tool`` decorators run. Autoloads every ``*.py``
+    under ``tools_dir`` (default ``app/mcp_tools/``, like Laravel discovers app/Listeners —
+    DR-0045/0046), then imports any explicit ``modules`` from config as an override/addition.
+    Tools self-register on import, so no reflection is needed — just import them."""
+    directory = Path(base_path) / tools_dir
+    if directory.is_dir():
+        prefix = tools_dir.replace("/", ".").replace("\\", ".")
+        for file in sorted(directory.glob("*.py")):
+            if not file.stem.startswith("_"):
+                import_module(f"{prefix}.{file.stem}")
+    for module in modules:
+        import_module(module)
+
+
 class AiServiceProvider(ServiceProvider):
     def register(self) -> None:
         # Config defaults are the typed AiSettings field defaults (the framework
@@ -27,8 +42,7 @@ class AiServiceProvider(ServiceProvider):
         # load_routes_from is too late for a package.
         mcp = self._settings().mcp
         if mcp.enabled:
-            for module in mcp.tools:
-                import_module(module)
+            _import_tools(self.app.base_path, mcp.tools_dir, mcp.tools)
             self.load_routes_from(str(Path(__file__).parent / "routes.py"))
 
     def _settings(self) -> AiSettings:
