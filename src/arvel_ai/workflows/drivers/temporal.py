@@ -47,9 +47,9 @@ class TemporalWorkflowDriver:
     ) -> WorkflowHandle:
         client = await self._connect()
 
-        import uuid
+        from arvel.support import Str
 
-        workflow_id = f"{name}-{uuid.uuid7().hex[:12]}"
+        workflow_id = f"{name}-{Str.uuid()}"
         # positional args map to Temporal's arg list; the registered workflow's
         # run signature is (ctx-less) — the app's worker adapts @workflow fns
         await client.start_workflow(
