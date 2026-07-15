@@ -269,6 +269,37 @@ async def test_stream_emits_tool_call_deltas_and_buffers_full_call() -> None:
     ]
 
 
+async def test_health_probes_models_and_reports_real_status() -> None:
+    from arvel.contracts import HealthStatus
+
+    # a reachable, authorized gateway -> OK (GET /models, the liveness route)
+    def ok_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/models"
+        return httpx.Response(200, json={"data": [{"id": "m"}]})
+
+    assert (await driver_with(ok_handler).health()).status is HealthStatus.OK
+
+    # a wrong/missing key -> 401 -> FAILED (this is the case that used to report OK)
+    auth = await driver_with(lambda r: httpx.Response(401, text="bad key")).health()
+    assert auth.status is HealthStatus.FAILED
+    assert "auth" in (auth.detail or "")
+
+    # an unreachable gateway -> FAILED
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    assert (await driver_with(boom).health()).status is HealthStatus.FAILED
+
+
+async def test_health_degraded_when_no_base_url() -> None:
+    from arvel.contracts import HealthStatus
+
+    driver = OpenAICompatibleDriver(base_url=None)
+    result = await driver.health()
+    assert result.status is HealthStatus.DEGRADED  # not a false OK
+    assert "AI_GATEWAY_URL" in (result.detail or "")
+
+
 async def test_driver_pools_one_client_and_aclose_drains_it() -> None:
     calls = 0
 

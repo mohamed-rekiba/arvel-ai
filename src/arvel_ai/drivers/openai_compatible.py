@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from arvel.client import Client, PendingRequest, RequestFailed, RequestTimedOut, TransportFailed
+from arvel.contracts import HealthResult, HealthStatus
 
 from arvel_ai.contracts import (
     AiAuthError,
@@ -43,6 +44,8 @@ from arvel_ai.contracts import (
 )
 
 from ._openai_format import parse_openai_response, to_openai_payload
+
+_HEALTH_TIMEOUT = 5.0  # keep the boot/health probe snappy — don't hang startup on a slow gateway
 
 
 def _parse_retry_after(value: str | None) -> float | None:
@@ -90,6 +93,25 @@ class OpenAICompatibleDriver:
     async def aclose(self) -> None:
         """Drain the pooled client's keep-alive connections (DR-0039 teardown)."""
         await self._http.aclose()
+
+    async def health(self) -> HealthResult:
+        """A real reachability + auth probe (DR-0039): GET /models, the OpenAI-compatible
+        liveness route. A missing/wrong key comes back 401/403 -> FAILED, an unreachable or
+        slow gateway -> FAILED; only a genuine 2xx is OK. The AI resource is non-critical, so a
+        failure degrades boot rather than aborting it — but it no longer reports a false OK."""
+        if not self.base_url:
+            return HealthResult(HealthStatus.DEGRADED, detail="not configured (AI_GATEWAY_URL unset)")
+        try:
+            resp = await self._client().timeout(_HEALTH_TIMEOUT).get("/models")
+        except RequestTimedOut as exc:
+            return HealthResult(HealthStatus.FAILED, detail=f"timeout: {exc}")
+        except TransportFailed as exc:
+            return HealthResult(HealthStatus.FAILED, detail=f"unreachable: {exc}")
+        if resp.status() in (401, 403):
+            return HealthResult(HealthStatus.FAILED, detail=f"auth rejected (HTTP {resp.status()})")
+        if resp.failed():
+            return HealthResult(HealthStatus.DEGRADED, detail=f"reachable, HTTP {resp.status()} on /models")
+        return HealthResult(HealthStatus.OK, detail="/models reachable")
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         payload = to_openai_payload(request, self.model)
