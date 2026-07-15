@@ -1,5 +1,5 @@
-"""AiResource (DR-0039): the gateway reports health + drains at shutdown, so a
-booting app logs it and /health covers it — no external service needed."""
+"""AiResource: the gateway reports its health and closes its client at shutdown, so a
+booting app logs it and /health covers it — no external service needed here."""
 
 from __future__ import annotations
 

@@ -1,8 +1,8 @@
-"""The stable gateway contract (S1-frozen) — arvel-owned shapes, no engine types.
+"""The gateway's stable shapes — all arvel-owned, no provider or engine types.
 
-Drivers translate between these models and their provider's wire format at the
-boundary; nothing from litellm/httpx/provider SDKs ever crosses into here
-(enforced by the import-linter contract in pyproject.toml).
+Each driver translates between these models and its provider's wire format at the edge, so
+nothing from litellm, httpx, or a provider SDK ever reaches this module. The import-linter
+rule in pyproject.toml keeps it that way.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class Message(msgspec.Struct):
 class ToolDef(msgspec.Struct):
     name: str
     description: str
-    input_schema: dict[str, Any]  # JSON Schema (LCD subset — see S1 notes)
+    input_schema: dict[str, Any]  # JSON Schema (stick to the basics every provider accepts)
 
 
 class ChatRequest(msgspec.Struct):
@@ -140,7 +140,7 @@ class StreamEnd(msgspec.Struct, tag="end"):
 ChatDelta = TextDelta | ToolCallDelta | StreamEnd
 
 
-# ---- errors (S1 taxonomy) ---------------------------------------------------
+# ---- errors -----------------------------------------------------------------
 
 
 class AiError(Exception):

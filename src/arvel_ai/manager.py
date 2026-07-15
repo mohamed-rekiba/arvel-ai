@@ -62,8 +62,9 @@ class AiManager(Manager):
     # -- request building -------------------------------------------------------
 
     def resolve_model(self, model: str | None) -> str | None:
-        """Alias -> concrete id via config `ai.models` (the model-churn shield):
-        apps say "fast"/"smart"; a provider retiring a model is a config edit."""
+        """Turn an alias into a concrete model id using config `ai.models`. Code asks for
+        "fast" or "smart", so when a provider retires a model you change one config line
+        instead of hunting through the codebase."""
         if model is None:
             return None
         return self.settings().models.get(model, model)

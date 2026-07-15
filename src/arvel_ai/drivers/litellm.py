@@ -1,10 +1,10 @@
-"""LiteLLM SDK driver — 100+ providers behind the stable contract (DR-0041).
+"""LiteLLM driver — one contract in front of 100+ providers.
 
-LiteLLM normalizes providers to the OpenAI format, so translation is shared
-with the openai_compatible driver. litellm is confined to this module (the
-import-linter contract enforces it), lazy-imported, and installed via
-`uv add 'arvel-ai[litellm]'`. Provider keys come from each provider's own env
-var (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...).
+LiteLLM normalizes every provider to the OpenAI format, so the request/response translation is
+the same code the openai_compatible driver uses. The litellm import lives only in this module
+and is loaded lazily, so an app that doesn't use it never pays for it; install it with
+`uv add 'arvel-ai[litellm]'`. Each provider's key comes from its own env var
+(ANTHROPIC_API_KEY, OPENAI_API_KEY, and so on).
 """
 
 from __future__ import annotations
@@ -68,10 +68,10 @@ class LiteLLMDriver:
         return litellm
 
     async def health(self) -> HealthResult:
-        """A real probe (DR-0039): a max_tokens=1 completion via litellm, exercising the same
-        auth + provider path a real call uses. A bad/missing provider key -> FAILED, an
-        unreachable or slow provider -> FAILED, a request-level error -> DEGRADED; a genuine
-        completion -> OK. Non-critical: a failure degrades boot rather than aborting it."""
+        """Check the provider by actually asking for a one-token completion, so it goes through
+        the same auth and provider path a real call would. A bad or missing key -> failed, an
+        unreachable or slow provider -> failed, a request-level error -> degraded, and a real
+        completion -> ok. Non-critical, so a failure degrades startup rather than aborting it."""
         if not self.model:
             return HealthResult(HealthStatus.DEGRADED, detail="no model configured")
         try:
@@ -88,7 +88,9 @@ class LiteLLMDriver:
             )
         except Exception as exc:  # noqa: BLE001 - translated at the boundary
             err = self._translate(exc)
-            status = HealthStatus.FAILED if isinstance(err, _HEALTH_FAILED) else HealthStatus.DEGRADED
+            status = (
+                HealthStatus.FAILED if isinstance(err, _HEALTH_FAILED) else HealthStatus.DEGRADED
+            )
             return HealthResult(status, detail=f"{type(err).__name__}: {err}")
         return HealthResult(HealthStatus.OK, detail="completion reachable")
 
@@ -172,7 +174,7 @@ class LiteLLMDriver:
             usage=Usage(input_tokens=usage.get("prompt_tokens", 0)),
         )
 
-    # -- error mapping: litellm exceptions -> the S1 taxonomy --------------------
+    # -- turning litellm exceptions into AiErrors --------------------------------
 
     @staticmethod
     def _translate(exc: Exception) -> AiError:

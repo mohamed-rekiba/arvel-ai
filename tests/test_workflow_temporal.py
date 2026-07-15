@@ -1,7 +1,6 @@
-"""Temporal driver against a REAL Temporal server (DR-0043 + constraint 3:
-real service in Docker, never a mock).
+"""Temporal driver against a real Temporal server in Docker — never a mock.
 
-testcontainers spins the server up for us — no manual `docker compose` needed:
+testcontainers spins the server up for us, so there's no manual `docker compose`:
 
     AI_INTEGRATION=1 uv run --extra temporal pytest tests/test_workflow_temporal.py -q
 

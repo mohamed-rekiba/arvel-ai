@@ -87,7 +87,11 @@ async def test_stream_emits_tool_call_deltas_and_buffers_the_call() -> None:
                 {
                     "delta": {
                         "tool_calls": [
-                            {"index": 0, "id": "c1", "function": {"name": "lookup", "arguments": '{"q":'}}
+                            {
+                                "index": 0,
+                                "id": "c1",
+                                "function": {"name": "lookup", "arguments": '{"q":'},
+                            }
                         ]
                     }
                 }

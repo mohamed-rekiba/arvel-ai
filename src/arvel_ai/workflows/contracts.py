@@ -1,5 +1,5 @@
-"""The stable workflow contract — arvel-owned, engine-neutral (mirrors the
-gateway's anti-corruption stance: no temporalio type crosses this boundary)."""
+"""The workflow contract — arvel-owned and engine-neutral, so no temporalio type
+ever crosses this boundary (same idea as the gateway contract)."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
-"""Gateway contract tests — encode the S1-frozen API shape.
+"""Gateway contract tests — pin down the public API shape.
 
-Everything here runs against the fake driver: it's a first-class registered
-driver, so `AI.fake()` and config-swap are the same mechanism production uses.
+Everything here runs against the fake driver. It's a real registered driver, so `AI.fake()`
+and swapping it in via config use the exact same mechanism production does.
 """
 
 from __future__ import annotations

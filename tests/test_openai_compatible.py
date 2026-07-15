@@ -1,7 +1,6 @@
-"""openai_compatible driver: translation + error mapping, exercised through a
-real httpx client against an in-process transport. (The full contract suite
-against a REAL dockerized endpoint lives behind AI_INTEGRATION_BASE_URL —
-see test_integration_endpoint.py; DR-0043.)
+"""openai_compatible driver: request/response translation and error mapping, run through a
+real httpx client against an in-process transport (no network). The full suite against a real
+dockerized endpoint lives behind AI_INTEGRATION_BASE_URL in test_integration_endpoint.py.
 """
 
 from __future__ import annotations

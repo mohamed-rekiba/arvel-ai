@@ -110,7 +110,7 @@ def _json_schema(schema: Any) -> dict[str, Any]:
     if isinstance(schema, dict):
         return schema
     generated = msgspec.json.schema(schema)
-    # inline the single $ref msgspec emits so LCD providers accept it
+    # inline the single $ref msgspec emits, since not every provider resolves $refs
     defs = generated.pop("$defs", {})
     ref = generated.get("$ref", "")
     if ref.startswith("#/$defs/"):

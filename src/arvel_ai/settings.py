@@ -75,7 +75,7 @@ class AiSettings(Settings):
     __config_key__ = "ai"
 
     default: str = "litellm"  # which driver AI.chat() dispatches to
-    # model aliases — the churn shield: AI.chat(..., model="fast")
+    # model aliases so callers say AI.chat(..., model="fast") and ops map it to a real id here
     models: dict[str, str] = msgspec.field(default_factory=dict)
     drivers: DriverSettings = msgspec.field(default_factory=DriverSettings)
     include_raw: bool = False

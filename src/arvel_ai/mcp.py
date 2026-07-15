@@ -45,15 +45,15 @@ _PY_TYPES: dict[str, type | tuple[type, ...]] = {
 
 
 def _schema_for(annotation: Any) -> dict[str, Any]:
-    """A JSON-Schema node for a Python parameter annotation. Maps scalars, ``list[T]`` (with
-    ``items``), ``dict`` (object), and ``Optional[T]``/``T | None`` (the non-None arm); anything
-    else — including an unannotated parameter — falls back to ``"string"`` (the LCD subset)."""
+    """Turn a Python parameter annotation into a JSON-Schema node. Handles scalars, ``list[T]``
+    (with its ``items``), ``dict`` (an object), and ``Optional[T]`` / ``T | None`` (the non-None
+    side); anything else, including an un-annotated parameter, falls back to ``"string"``."""
     origin = get_origin(annotation)
     if origin is types.UnionType or origin is Union:  # Optional[T] / T | None
         arms = [a for a in get_args(annotation) if a is not type(None)]
         if len(arms) == 1:
             return _schema_for(arms[0])
-        return {"type": "string"}  # a genuine multi-type union isn't in the LCD subset
+        return {"type": "string"}  # a real multi-type union is more than we promise to map
     if annotation in _SCALAR_JSON:
         return {"type": _SCALAR_JSON[annotation]}
     if annotation is list or origin is list:

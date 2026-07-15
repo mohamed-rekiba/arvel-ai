@@ -1,6 +1,6 @@
-"""Workflow contract: registry, the queue-backed default driver, the fake, and
-the manager facade. (Temporal is exercised against a REAL Temporal server in
-tests/test_workflow_temporal.py, docker-compose, per DR-0043.)"""
+"""Workflow contract: the registry, the queue-backed default driver, the fake, and the
+manager facade. (The Temporal driver is tested against a real Temporal server in
+tests/test_workflow_temporal.py.)"""
 
 from __future__ import annotations
 

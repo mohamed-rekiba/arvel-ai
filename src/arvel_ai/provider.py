@@ -38,8 +38,8 @@ class AiServiceProvider(ServiceProvider):
     def boot(self) -> None:
         self.commands(cli)
 
-        # Register the AI gateway as a health-checkable, drained-at-shutdown
-        # resource (DR-0039) — it appears in the resource-startup log and /health.
+        # Register the AI gateway as a resource so it shows up in the startup log and on
+        # /health, and gets closed at shutdown.
         from .resource import AiResource
 
         self.app.resources.register(

@@ -1,5 +1,5 @@
-"""Live provider smoke tests through the litellm SDK (DR-0043: real service,
-not a mock). No Docker — litellm IS the client; these hit a real provider.
+"""Live provider smoke tests through the litellm SDK — a real provider, not a mock. No
+Docker needed, since litellm is itself the client; these hit a real provider directly.
 
 Gated on a real key; skipped otherwise so the default suite stays hermetic:
     AI_LIVE_MODEL=anthropic/claude-haiku-4-5 ANTHROPIC_API_KEY=... \

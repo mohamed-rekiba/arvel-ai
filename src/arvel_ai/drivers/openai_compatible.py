@@ -1,17 +1,14 @@
 """Driver for any OpenAI-format endpoint: a deployed LiteLLM proxy, vLLM,
 Ollama's OpenAI route, or OpenAI itself.
 
-HTTP + SSE go through arvel's ``Http`` client (``arvel.client.Client``): arvel core owns
-connection pooling, timeouts, and SSE parsing (``ServerSentEvent``). The driver holds one
-pooled ``Client`` and reuses its keep-alive connections across calls; ``aclose()`` drains
-the pool at shutdown (DR-0039 — ``AiResource.disconnect`` calls it). This driver is the
-anti-corruption boundary (DR-0041) — it maps arvel's transport exceptions
-(``RequestTimedOut``/``TransportFailed``) and OpenAI status codes to the ``AiError``
-taxonomy so no engine type crosses the public surface. It never imports httpx: arvel's
-client fully wraps the engine (DR-0044).
+HTTP and streaming both go through arvel's own client, so it handles connection pooling,
+timeouts, and parsing the server-sent-event stream. The driver keeps one client and reuses
+its connections; aclose() closes the pool when the app shuts down. It never imports httpx
+itself — everything the caller sees is an arvel type or an AiError, so a provider quirk or a
+network failure can't leak out as a raw httpx exception. Transport errors and the OpenAI
+status codes are translated into the AiError family here.
 
-The API key comes from the env var NAMED in config (api_key_env) — never from
-config values.
+The API key comes from the env var named in config (api_key_env), never from a config value.
 """
 
 from __future__ import annotations
@@ -75,8 +72,7 @@ class OpenAICompatibleDriver:
         self.model = model
         self.timeout = timeout
         self.include_raw = include_raw
-        # one pooled client for the driver's lifetime — keep-alive connections are reused
-        # across calls; drained by aclose() at shutdown (DR-0039)
+        # one client for the driver's lifetime, so connections are reused across calls
         self._http = Client(transport=transport)
 
     def _client(self) -> PendingRequest:
@@ -91,19 +87,23 @@ class OpenAICompatibleDriver:
         return req
 
     async def aclose(self) -> None:
-        """Drain the pooled client's keep-alive connections (DR-0039 teardown)."""
+        """Close the client's pooled connections when the app shuts down."""
         await self._http.aclose()
 
     async def health(self) -> HealthResult:
-        """A real reachability + auth probe (DR-0039). Tries the cheap OpenAI liveness route
-        (GET /models) first — free, and enough for OpenAI/LiteLLM/vLLM/Ollama. If that doesn't
-        cleanly succeed it falls back to a 1-token chat on the actual /chat/completions path,
-        because some gateways (Anthropic's OpenAI-compatible endpoint) reject the /models route's
-        auth even with a valid key. A bad/missing key is 401/403 -> FAILED, an unreachable or slow
-        gateway -> FAILED; only a genuine success is OK. Non-critical: a failure degrades boot
-        rather than aborting it — but it no longer reports a false OK."""
+        """Check that the gateway is actually reachable and the key actually works.
+
+        Tries GET /models first — it's free and enough for OpenAI, a LiteLLM proxy, vLLM, or
+        Ollama. If that doesn't come back clean it sends a one-token chat to /chat/completions
+        instead, because some gateways (Anthropic's OpenAI-compatible endpoint, for one) reject
+        the /models route's auth even when the key is fine. A missing or wrong key comes back as
+        401/403 -> failed, an unreachable or slow gateway -> failed, and only a real success is ok.
+        The AI resource is non-critical, so a failure degrades startup instead of aborting it, but
+        it no longer claims to be healthy when it isn't."""
         if not self.base_url:
-            return HealthResult(HealthStatus.DEGRADED, detail="not configured (AI_GATEWAY_URL unset)")
+            return HealthResult(
+                HealthStatus.DEGRADED, detail="not configured (AI_GATEWAY_URL unset)"
+            )
         try:
             resp = await self._client().timeout(_HEALTH_TIMEOUT).get("/models")
         except RequestTimedOut as exc:
@@ -112,20 +112,26 @@ class OpenAICompatibleDriver:
             return HealthResult(HealthStatus.FAILED, detail=f"unreachable: {exc}")
         if resp.successful():
             return HealthResult(HealthStatus.OK, detail="/models reachable")
-        return await self._probe_chat()  # /models inconclusive — verify on the real path
+        return await self._probe_chat()  # /models didn't answer cleanly — check the real path
 
     async def _probe_chat(self) -> HealthResult:
-        """Fallback health probe: a max_tokens=1 completion on the endpoint the driver actually
-        uses, so the auth path matches. Costs ~1 token, only when /models didn't already answer."""
+        """The fallback probe: a one-token chat on the same endpoint a real request uses, so the
+        auth path matches. Costs about a token, and only runs when /models didn't already answer."""
         if not self.model:
-            return HealthResult(HealthStatus.DEGRADED, detail="reachable, but no model set to verify")
+            return HealthResult(
+                HealthStatus.DEGRADED, detail="reachable, but no model set to verify"
+            )
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": "ping"}],
             "max_tokens": 1,
         }
         try:
-            resp = await self._client().timeout(_HEALTH_TIMEOUT).post("/chat/completions", json=payload)
+            resp = (
+                await self._client()
+                .timeout(_HEALTH_TIMEOUT)
+                .post("/chat/completions", json=payload)
+            )
         except RequestTimedOut as exc:
             return HealthResult(HealthStatus.FAILED, detail=f"timeout: {exc}")
         except TransportFailed as exc:
@@ -134,7 +140,8 @@ class OpenAICompatibleDriver:
             return HealthResult(HealthStatus.FAILED, detail=f"auth rejected (HTTP {resp.status()})")
         if resp.failed():
             return HealthResult(
-                HealthStatus.DEGRADED, detail=f"reachable, HTTP {resp.status()} on /chat/completions"
+                HealthStatus.DEGRADED,
+                detail=f"reachable, HTTP {resp.status()} on /chat/completions",
             )
         return HealthResult(HealthStatus.OK, detail="chat reachable")
 
@@ -181,7 +188,7 @@ class OpenAICompatibleDriver:
             self._raise_for_status(resp.status(), resp.body(), resp.header("retry-after"))
         except RequestTimedOut as exc:
             raise AiTimeout(str(exc)) from exc
-        except TransportFailed as exc:  # don't leak the engine type past the boundary (DR-0041)
+        except TransportFailed as exc:  # translate it so a raw httpx error never escapes
             raise AiProviderError(str(exc)) from exc
         content: list[Any] = [Text(text="".join(text_parts))] if text_parts else []
         for slot in tool_calls.values():
@@ -212,7 +219,7 @@ class OpenAICompatibleDriver:
             usage=Usage(input_tokens=usage.get("prompt_tokens", 0)),
         )
 
-    # -- error mapping (S1 taxonomy) ------------------------------------------
+    # -- turning HTTP responses into AiErrors ---------------------------------
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:

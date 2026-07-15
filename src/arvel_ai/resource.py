@@ -1,11 +1,8 @@
-"""AiResource — the AI gateway as a lifecycle-managed, health-checkable resource (DR-0039).
+"""The AI gateway as a health-checkable resource.
 
-Registered by AiServiceProvider so a booting app reports the AI backend in its
-resource-startup log and /health, and drains any client a resolved driver holds
-(via its `aclose`/`close`) at shutdown. The openai_compatible driver holds none —
-it goes through arvel's Http client, whose shared pool arvel's own provider closes.
-Non-critical: an AI outage degrades rather than aborts boot — most apps can still
-serve without AI.
+AiServiceProvider registers this so a booting app reports the AI backend in the startup log
+and on /health, and so any client a driver holds gets closed at shutdown. It's non-critical:
+if the AI backend is down the app still starts and serves everything else.
 """
 
 from __future__ import annotations
@@ -29,10 +26,9 @@ class AiResource:
         return self._manager.default_driver()
 
     async def check(self) -> HealthResult:
-        """Report the configured driver. A `health()` on the driver (DR-0039
-        ManagedLifecycle) is used when present; otherwise resolving the driver
-        is itself the reachability signal — a misconfigured/missing extra
-        surfaces here as a degraded resource instead of a first-call 500."""
+        """Ask the driver how it's doing. If the driver has a health() we use it; if it doesn't,
+        just resolving it is the signal — a missing extra or bad config shows up here as an
+        unhealthy resource instead of blowing up on the first real call."""
         driver_name = self._driver_name()
         try:
             driver = self._manager.driver()
@@ -47,7 +43,7 @@ class AiResource:
         return HealthResult(HealthStatus.OK, detail=f"{driver_name} (configured)")
 
     async def disconnect(self) -> None:
-        """Drain any client the resolved driver holds (DR-0039 teardown)."""
+        """Close whatever client the driver is holding, if it exposes aclose()/close()."""
         try:
             driver = self._manager.driver()
         except Exception:
