@@ -8,8 +8,6 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 import msgspec
 
-from arvel.support.facades import Facade
-
 WorkflowState = Literal["running", "completed", "failed"]
 
 
@@ -86,17 +84,3 @@ registry = WorkflowRegistry()
 def workflow(name: str | None = None) -> Callable[[WorkflowFn], WorkflowFn]:
     """Register a workflow function under the default registry."""
     return registry.register(name)
-
-
-class Workflow(Facade):
-    """`Workflow.start(...)` / `.signal(...)` / `.status(...)` — the manager facade."""
-
-    @classmethod
-    def accessor(cls) -> str:
-        return "ai.workflows"
-
-    @classmethod
-    def fake_class(cls) -> type:
-        from .drivers.fake import FakeWorkflowDriver
-
-        return FakeWorkflowDriver

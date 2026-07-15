@@ -31,7 +31,6 @@ Drivers (config `ai.workflows.default`):
 """
 
 from .contracts import (
-    Workflow,
     WorkflowContext,
     WorkflowDriver,
     WorkflowHandle,
@@ -40,6 +39,7 @@ from .contracts import (
     registry,
     workflow,
 )
+from .facade import Workflow
 
 __all__ = [
     "Workflow",
