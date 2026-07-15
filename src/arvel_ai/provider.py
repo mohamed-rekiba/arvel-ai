@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from importlib import import_module
+import importlib.util
 from pathlib import Path
 
 from arvel.kernel import ServiceProvider
@@ -17,15 +17,20 @@ def _import_tools(base_path: str, tools_dir: str, modules: list[str]) -> None:
     """Load the app's MCP tools so their ``@mcp_tool`` decorators run. Autoloads every ``*.py``
     under ``tools_dir`` (default ``app/mcp_tools/``, like Laravel discovers app/Listeners —
     DR-0045/0046), then imports any explicit ``modules`` from config as an override/addition.
-    Tools self-register on import, so no reflection is needed — just import them."""
+    The folder is loaded **by path** (like arvel's ``config/*.py`` and listener discovery), so it
+    doesn't depend on ``base_path`` being on ``sys.path``. Tools self-register when their module
+    executes — no reflection needed."""
     directory = Path(base_path) / tools_dir
     if directory.is_dir():
-        prefix = tools_dir.replace("/", ".").replace("\\", ".")
         for file in sorted(directory.glob("*.py")):
-            if not file.stem.startswith("_"):
-                import_module(f"{prefix}.{file.stem}")
+            if file.stem.startswith("_"):
+                continue
+            spec = importlib.util.spec_from_file_location(f"_arvel_mcp_tool_{file.stem}", file)
+            if spec is None or spec.loader is None:  # pragma: no cover - defensive
+                continue
+            spec.loader.exec_module(importlib.util.module_from_spec(spec))
     for module in modules:
-        import_module(module)
+        importlib.import_module(module)
 
 
 class AiServiceProvider(ServiceProvider):

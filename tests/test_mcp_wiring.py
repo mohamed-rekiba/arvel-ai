@@ -63,3 +63,22 @@ def test_import_tools_autoloads_the_folder(tmp_path: Path) -> None:
 
 def test_import_tools_skips_a_missing_folder() -> None:
     _import_tools("/nonexistent", "app/mcp_tools", [])  # must not raise
+
+
+def test_provider_register_autoloads_tools_folder(tmp_path: Path) -> None:
+    # the real provider path: register() reads app.base_path and autoloads app/mcp_tools/ —
+    # no config tools list, no sys.path fiddling (loaded by path)
+    (tmp_path / "app" / "mcp_tools").mkdir(parents=True)
+    (tmp_path / "app" / "mcp_tools" / "orders.py").write_text(
+        "from arvel_ai.mcp import mcp_tool\n"
+        "@mcp_tool()\n"
+        "async def probe_order(id: int) -> str:\n"
+        "    return 'ok'\n"
+    )
+    application = Application(str(tmp_path))
+    application.make("config").set("ai", {"mcp": {"enabled": True, "path": "/mcp"}})
+    AiServiceProvider(application).register()
+    try:
+        assert any(t["name"] == "probe_order" for t in registry.descriptors())
+    finally:
+        registry.remove("probe_order")
