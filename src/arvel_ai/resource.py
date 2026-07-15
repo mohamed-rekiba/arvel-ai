@@ -1,9 +1,11 @@
 """AiResource — the AI gateway as a lifecycle-managed, health-checkable resource (DR-0039).
 
 Registered by AiServiceProvider so a booting app reports the AI backend in its
-resource-startup log and /health, and drains driver-held clients (e.g. the
-openai_compatible httpx client) at shutdown. Non-critical: an AI outage degrades
-rather than aborts boot — most apps can still serve without AI.
+resource-startup log and /health, and drains any client a resolved driver holds
+(via its `aclose`/`close`) at shutdown. The openai_compatible driver holds none —
+it goes through arvel's Http client, whose shared pool arvel's own provider closes.
+Non-critical: an AI outage degrades rather than aborts boot — most apps can still
+serve without AI.
 """
 
 from __future__ import annotations
