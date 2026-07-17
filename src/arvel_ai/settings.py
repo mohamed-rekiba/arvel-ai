@@ -24,7 +24,7 @@ class OpenAICompatibleSettings(msgspec.Struct):
     include_raw: bool = False
 
 
-class LiteLLMSettings(msgspec.Struct):
+class AnyLLMSettings(msgspec.Struct):
     model: str | None = None
     timeout: float = 60.0
     max_retries: int = 2
@@ -32,7 +32,7 @@ class LiteLLMSettings(msgspec.Struct):
 
 
 class DriverSettings(msgspec.Struct):
-    litellm: LiteLLMSettings = msgspec.field(default_factory=LiteLLMSettings)
+    any_llm: AnyLLMSettings = msgspec.field(default_factory=AnyLLMSettings)
     openai_compatible: OpenAICompatibleSettings = msgspec.field(
         default_factory=OpenAICompatibleSettings
     )
@@ -60,7 +60,7 @@ class AiSettings(Settings):
 
     __config_key__ = "ai"
 
-    default: str = "litellm"  # which driver AI.chat() dispatches to
+    default: str = "any_llm"  # which driver AI.chat() dispatches to
     # model aliases so callers say AI.chat(..., model="fast") and ops map it to a real id here
     models: dict[str, str] = msgspec.field(default_factory=dict[str, str])
     drivers: DriverSettings = msgspec.field(default_factory=DriverSettings)

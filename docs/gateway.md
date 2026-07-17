@@ -131,7 +131,7 @@ Embeddings are per-driver: a driver whose provider has no embeddings endpoint ra
 ## Drivers & model aliases
 
 `config("ai.default")` picks the driver; `config("ai.drivers.<name>")` configures it. The engine
-(`httpx`, `litellm`) is lazy-imported *inside* the driver and never reaches the public surface.
+(`httpx`, `any_llm`) is lazy-imported *inside* the driver and never reaches the public surface.
 
 ```python
 # config/ai.py
@@ -148,8 +148,10 @@ ai = {
   LiteLLM proxy, vLLM, or Ollama. Ships in the base install (its httpx engine is arvel core) and
   runs on arvel's own pooled HTTP client. Needs `base_url`; key via the env var named in
   `api_key_env`.
-- **`litellm`** — the LiteLLM SDK: 100+ providers, keys via each provider's own env var
-  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …). Needs `uv add 'arvel-ai[litellm]'`.
+- **`any_llm`** — the any-llm SDK: many providers, `provider:model` ids (colon-separated,
+  e.g. `anthropic:claude-haiku-4-5`), keys via each provider's own env var (`ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, …). Needs `uv add 'arvel-ai[any-llm]'` plus your provider's SDK
+  (`uv add 'any-llm-sdk[anthropic]'`).
 - **`fake`** — the test double (see [Testing](#testing)).
 
 `models` is the churn shield: apps say `model="fast"`; a provider retiring a model is one config
@@ -183,7 +185,7 @@ The check is **real** — it reaches the provider, it doesn't just guess from co
 
 - `openai_compatible` probes `GET /models`, falling back to a one-token chat on `/chat/completions`
   when that route rejects the auth (Anthropic's does, even with a valid key).
-- `litellm` runs a one-token completion through the SDK.
+- `any_llm` runs a one-token completion through the SDK.
 
 `ok` means reachable *and* the key works; `failed` means a wrong/missing key or an unreachable
 provider; `degraded` means unconfigured (no `base_url`/model). The resource is **non-critical** by
@@ -193,7 +195,7 @@ set `critical: True` if your app can't run without AI.
 ## Errors
 
 One taxonomy, whatever the provider — drivers translate their engine's exceptions at the boundary,
-so a raw `httpx`/`litellm` error never reaches you. Each inherits `AiError` and carries a
+so a raw `httpx`/`any_llm` error never reaches you. Each inherits `AiError` and carries a
 `.retryable` flag:
 
 | Error | When | retryable |
@@ -256,8 +258,8 @@ are in the sections above and in each feature's own examples.
 
 ## Common mistakes & gotchas
 
-- **Set `default` explicitly.** The package's built-in default driver is `litellm` (which needs
-  `uv add 'arvel-ai[litellm]'`). A base `uv add arvel-ai` with no config hits a missing-extra error
+- **Set `default` explicitly.** The package's built-in default driver is `any_llm` (which needs
+  `uv add 'arvel-ai[any-llm]'`). A base `uv add arvel-ai` with no config hits a missing-extra error
   on the first call — set `"default": "openai_compatible"` to use the driver that ships with the
   base install.
 - **Keys live in env vars.** Config holds the env var *name* (`api_key_env`), never the value.

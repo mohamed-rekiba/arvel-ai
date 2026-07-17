@@ -13,9 +13,9 @@ def test_manager_binds_and_settings_default(app: Application) -> None:
     manager = app.make("ai")
     assert isinstance(manager, AiManager)
     # typed AiSettings supplies defaults (no merge_config_from / DEFAULTS dict)
-    assert manager.settings().default == "litellm"
-    assert AiSettings().default == "litellm"
-    assert manager.default_driver() == "litellm"
+    assert manager.settings().default == "any_llm"
+    assert AiSettings().default == "any_llm"
+    assert manager.default_driver() == "any_llm"
 
 
 def test_commands_are_registered(app: Application) -> None:

@@ -54,10 +54,10 @@ class AiManager(Manager):
 
         return OpenAICompatibleDriver(**as_kwargs(self.settings().drivers.openai_compatible))
 
-    def create_litellm_driver(self) -> Any:
-        from .drivers.litellm import LiteLLMDriver
+    def create_any_llm_driver(self) -> Any:
+        from .drivers.any_llm import AnyLLMDriver
 
-        return LiteLLMDriver(**as_kwargs(self.settings().drivers.litellm))
+        return AnyLLMDriver(**as_kwargs(self.settings().drivers.any_llm))
 
     # -- request building -------------------------------------------------------
 
@@ -158,7 +158,7 @@ class AiManager(Manager):
         if not getattr(driver, "supports_embeddings", False):
             raise AiCapabilityError(
                 f"driver {self.default_driver()!r} has no embeddings support - "
-                "configure a driver that does (e.g. litellm/openai_compatible)"
+                "configure a driver that does (e.g. any_llm/openai_compatible)"
             )
         request = EmbedRequest(texts=texts, model=self.resolve_model(model))
         await self._dispatch(AiEmbedding(self.default_driver(), request))

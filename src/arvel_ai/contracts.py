@@ -1,7 +1,7 @@
 """The gateway's stable shapes — all arvel-owned, no provider or engine types.
 
 Each driver translates between these models and its provider's wire format at the edge, so
-nothing from litellm, httpx, or a provider SDK ever reaches this module. The import-linter
+nothing from any_llm, httpx, or a provider SDK ever reaches this module. The import-linter
 rule in pyproject.toml keeps it that way.
 """
 

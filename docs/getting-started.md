@@ -14,10 +14,11 @@ boot it binds the `ai` service, registers the AI gateway as a health-checked
 resource, and (when enabled) mounts the MCP routes.
 
 The default `openai_compatible` driver runs on arvel's own HTTP client, whose `httpx` engine is part
-of arvel core — nothing extra to install. The LiteLLM driver is an optional extra:
+of arvel core — nothing extra to install. The any-llm driver is an optional extra:
 
 ```bash
-uv add 'arvel-ai[litellm]'      # LiteLLM driver: 100+ providers behind one contract
+uv add 'arvel-ai[any-llm]'           # any-llm driver: many providers behind one contract
+uv add 'any-llm-sdk[anthropic]'      # + your provider's SDK (any-llm ships them as extras)
 ```
 
 ## 2. Configure
@@ -45,8 +46,8 @@ ai = {
 }
 ```
 
-> **Set `default` explicitly, as above.** The package's *built-in* default driver is `litellm`,
-> which needs `uv add 'arvel-ai[litellm]'`. A base install with no config would hit a missing-extra
+> **Set `default` explicitly, as above.** The package's *built-in* default driver is `any_llm`,
+> which needs `uv add 'arvel-ai[any-llm]'`. A base install with no config would hit a missing-extra
 > error on the first call; `"default": "openai_compatible"` uses the driver that ships with the base
 > install.
 
@@ -59,8 +60,9 @@ AI_API_KEY=sk-...
 
 > **Any OpenAI-compatible endpoint works:** a provider directly
 > (`https://api.anthropic.com/v1`, `https://api.openai.com/v1`), a LiteLLM proxy, or a local
-> vLLM/Ollama server. For the full LiteLLM provider matrix, install `arvel-ai[litellm]` and set
-> `"default": "litellm"` — see [Drivers](gateway.md#drivers--model-aliases).
+> vLLM/Ollama server. For the full any-llm provider matrix, install `arvel-ai[any-llm]` and set
+> `"default": "any_llm"` (model ids become `provider:model`, e.g. `anthropic:claude-haiku-4-5`) —
+> see [Drivers](gateway.md#drivers--model-aliases).
 
 ## 3. Make a call
 

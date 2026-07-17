@@ -8,7 +8,7 @@ help:  ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-sync:  ## Create/refresh the dev environment (dev tools; the litellm extra is faked in tests)
+sync:  ## Create/refresh the dev environment (dev tools; the any-llm extra is faked in tests)
 	uv sync
 
 lint:  ## Ruff lint
@@ -24,7 +24,7 @@ typecheck:  ## Strict mypy + pyright
 	$(RUN) mypy src
 	$(RUN) pyright
 
-imports:  ## import-linter — keeps the engines (litellm/httpx) off the import path
+imports:  ## import-linter — keeps the engines (any_llm/httpx) off the import path
 	PYTHONPATH=src $(RUN) lint-imports
 
 test:  ## pytest (hermetic; the live-provider tier is env-gated)

@@ -1,5 +1,5 @@
-"""OpenAI-format translation, shared by the openai_compatible and litellm
-drivers (LiteLLM normalizes every provider to this shape).
+"""OpenAI-format translation, shared by the openai_compatible and any_llm
+drivers (any-llm normalizes every provider to this shape).
 
 Pure functions over stdlib + msgspec — no engine imports here.
 """

@@ -9,7 +9,7 @@ call time.
 ```python
 # config/ai.py
 ai = {
-    "default": "litellm",
+    "default": "any_llm",
     "models": {},
     "include_raw": False,
     "critical": False,
@@ -22,7 +22,7 @@ ai = {
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `default` | str | `"litellm"` | which driver `AI.chat()` dispatches to (`litellm` / `openai_compatible` / a custom name) |
+| `default` | str | `"any_llm"` | which driver `AI.chat()` dispatches to (`any_llm` / `openai_compatible` / a custom name) |
 | `models` | dict[str, str] | `{}` | aliases → concrete model ids; `AI.chat(..., model="fast")` resolves here |
 | `include_raw` | bool | `False` | attach the provider's raw JSON to responses (debugging) |
 | `critical` | bool | `False` | does an AI outage abort app boot? `False` = degrade instead |
@@ -37,13 +37,13 @@ ai = {
 | `timeout` | float | `60.0` | per-request timeout (seconds) |
 | `include_raw` | bool | `False` | attach raw provider JSON |
 
-## `drivers.litellm`
+## `drivers.any_llm`
 
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
-| `model` | str \| None | `None` | default model, LiteLLM form (e.g. `anthropic/claude-haiku-4-5`) |
-| `timeout` | float | `60.0` | per-request timeout |
-| `max_retries` | int | `2` | LiteLLM's own retry count |
+| `model` | str \| None | `None` | default model, any-llm form — `provider:model`, colon-separated (e.g. `anthropic:claude-haiku-4-5`) |
+| `timeout` | float | `60.0` | per-request timeout (driver-enforced; per-chunk while streaming) |
+| `max_retries` | int | `2` | driver-level retries on retryable errors (rate limit / timeout / 5xx) |
 | `include_raw` | bool | `False` | attach raw provider JSON |
 
 Provider keys use each provider's standard env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …).
@@ -78,15 +78,18 @@ manager does. When you need a value:
 from arvel_ai.settings import AiSettings
 
 settings = AiSettings()          # reads + validates config("ai")
-settings.default                 # "litellm"
+settings.default                 # "any_llm"
 settings.mcp.enabled             # False
 ```
 
 ## Common mistakes & gotchas
 
-- **The built-in `default` is `litellm`**, which needs `uv add 'arvel-ai[litellm]'`. Set
+- **The built-in `default` is `any_llm`**, which needs `uv add 'arvel-ai[any-llm]'`. Set
   `"default": "openai_compatible"` to use the base-install driver (see
   [Getting Started](getting-started.md)).
+- **any-llm model ids are `provider:model`** (colon, not slash) — `anthropic:claude-haiku-4-5` —
+  and the provider's own SDK must be installed; any-llm ships them as extras, e.g.
+  `uv add 'any-llm-sdk[anthropic]'`.
 - **Secrets are env-var *names* here, not values** — `api_key_env`, `token_env`.
 - **`mcp.public_url` is required when `mcp.enabled`** — the metadata document and 401 challenge are
   built from it.

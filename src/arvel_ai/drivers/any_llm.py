@@ -1,15 +1,22 @@
-"""LiteLLM driver — one contract in front of 100+ providers.
+"""any-llm driver — one contract in front of many providers.
 
-LiteLLM normalizes every provider to the OpenAI format, so the request/response translation is
-the same code the openai_compatible driver uses. The litellm import lives only in this module
-and is loaded lazily, so an app that doesn't use it never pays for it; install it with
-`uv add 'arvel-ai[litellm]'`. Each provider's key comes from its own env var
+any-llm (Mozilla AI) normalizes every provider to the OpenAI format, so the request/response
+translation is the same code the openai_compatible driver uses. The any_llm import lives only
+in this module and is loaded lazily, so an app that doesn't use it never pays for it; install
+it with `uv add 'arvel-ai[any-llm]'` plus your provider's SDK (any-llm ships those as extras,
+e.g. `uv add 'any-llm-sdk[anthropic]'`). Model ids are `provider:model` colon-separated
+(`anthropic:claude-haiku-4-5`), and each provider's key comes from its own env var
 (ANTHROPIC_API_KEY, OPENAI_API_KEY, and so on).
+
+any-llm exposes no timeout or retry knobs, so both live here: every call runs under
+`asyncio.wait_for` (per-chunk while streaming), and chat/embed retry retryable failures
+with exponential backoff. Streaming never retries — deltas already yielded can't be unsaid.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from arvel.contracts import HealthResult, HealthStatus
@@ -49,7 +56,7 @@ _HEALTH_TIMEOUT = 5.0  # keep the boot/health probe snappy — don't hang startu
 _HEALTH_FAILED = (AiAuthError, AiTimeout, AiProviderError)
 
 
-class LiteLLMDriver:
+class AnyLLMDriver:
     supports_embeddings = True
 
     def __init__(
@@ -64,15 +71,15 @@ class LiteLLMDriver:
         self.max_retries = max_retries
         self.include_raw = include_raw
 
-    def _litellm(self) -> Any:
+    def _any_llm(self) -> Any:
         try:
-            # litellm is an optional extra, deliberately not installed in dev (see module
+            # any-llm is an optional extra, deliberately not installed in dev (see module
             # docstring) — pyright can't see a package that isn't in the environment, and no
             # annotation fixes that; the import itself is erased to Any right below anyway.
-            import litellm  # pyright: ignore[reportMissingImports]
+            import any_llm  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
-            raise MissingExtraError("litellm", package="arvel-ai") from exc
-        return litellm
+            raise MissingExtraError("any-llm", package="arvel-ai") from exc
+        return any_llm
 
     async def health(self) -> HealthResult:
         """Check the provider by actually asking for a one-token completion, so it goes through
@@ -82,16 +89,17 @@ class LiteLLMDriver:
         if not self.model:
             return HealthResult(HealthStatus.DEGRADED, detail="no model configured")
         try:
-            litellm = self._litellm()
+            any_llm = self._any_llm()
         except MissingExtraError as exc:
             return HealthResult(HealthStatus.FAILED, detail=str(exc))
         try:
-            await litellm.acompletion(
-                model=self.model,
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=1,
-                timeout=_HEALTH_TIMEOUT,
-                num_retries=0,
+            await asyncio.wait_for(
+                any_llm.acompletion(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=1,
+                ),
+                _HEALTH_TIMEOUT,
             )
         except Exception as exc:  # noqa: BLE001 - translated at the boundary
             err = self._translate(exc)
@@ -101,32 +109,45 @@ class LiteLLMDriver:
             return HealthResult(status, detail=f"{type(err).__name__}: {err}")
         return HealthResult(HealthStatus.OK, detail="completion reachable")
 
+    async def _call_with_retries(self, invoke: Callable[[], Awaitable[Any]]) -> Any:
+        """One provider call under the driver timeout, retrying retryable failures with
+        exponential backoff — any-llm has no retry or timeout knobs of its own."""
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await asyncio.wait_for(invoke(), self.timeout)
+            except Exception as exc:  # noqa: BLE001 - translated at the boundary
+                err = self._translate(exc)
+                if not err.retryable or attempt == self.max_retries:
+                    raise err from exc
+                await asyncio.sleep(getattr(err, "retry_after", None) or 0.5 * 2**attempt)
+        raise AssertionError("unreachable")  # pragma: no cover
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        litellm = self._litellm()
+        any_llm = self._any_llm()
         payload = to_openai_payload(request, self.model)
-        try:
-            result = await litellm.acompletion(
-                **payload, timeout=self.timeout, num_retries=self.max_retries
-            )
-        except Exception as exc:  # noqa: BLE001 - translated at the boundary
-            raise self._translate(exc) from exc
+        result = await self._call_with_retries(lambda: any_llm.acompletion(**payload))
         return parse_openai_response(
             result.model_dump() if hasattr(result, "model_dump") else dict(result),
             include_raw=self.include_raw,
         )
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatDelta]:
-        litellm = self._litellm()
+        any_llm = self._any_llm()
         payload = to_openai_payload(request, self.model)
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, Any]] = {}
         model = ""
         finish = "stop"
         try:
-            stream = await litellm.acompletion(
-                **payload, stream=True, timeout=self.timeout, num_retries=self.max_retries
+            stream = aiter(
+                await asyncio.wait_for(any_llm.acompletion(**payload, stream=True), self.timeout)
             )
-            async for chunk in stream:
+            while True:
+                try:
+                    # per-chunk idle timeout — the whole-stream duration is open-ended
+                    chunk = await asyncio.wait_for(anext(stream), self.timeout)
+                except StopAsyncIteration:
+                    break
                 data: dict[str, Any] = (
                     chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)
                 )
@@ -170,13 +191,10 @@ class LiteLLMDriver:
         )
 
     async def embed(self, request: EmbedRequest) -> EmbedResponse:
-        litellm = self._litellm()
-        try:
-            result = await litellm.aembedding(
-                model=request.model or self.model, input=request.texts, timeout=self.timeout
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise self._translate(exc) from exc
+        any_llm = self._any_llm()
+        result = await self._call_with_retries(
+            lambda: any_llm.aembedding(model=request.model or self.model, inputs=request.texts)
+        )
         data = result.model_dump() if hasattr(result, "model_dump") else dict(result)
         usage: dict[str, Any] = data.get("usage") or {}
         return EmbedResponse(
@@ -185,25 +203,56 @@ class LiteLLMDriver:
             usage=Usage(input_tokens=usage.get("prompt_tokens", 0)),
         )
 
-    # -- turning litellm exceptions into AiErrors --------------------------------
+    # -- turning any-llm exceptions into AiErrors --------------------------------
 
     @staticmethod
     def _translate(exc: Exception) -> AiError:
         if isinstance(exc, AiError):
             return exc
-        name = type(exc).__name__
-        status = getattr(exc, "status_code", None)
-        message = f"{name}: {exc}"
-        if name in ("AuthenticationError", "PermissionDeniedError") or status in (401, 403):
-            return AiAuthError(message)
-        if name == "RateLimitError" or status == 429:
-            return AiRateLimited(message)
-        if name in ("Timeout", "APITimeoutError"):
-            return AiTimeout(message)
-        if name == "ContentPolicyViolationError":
-            return AiContentFiltered(message)
-        if name in ("BadRequestError", "NotFoundError", "UnprocessableEntityError") or (
-            status is not None and 400 <= int(status) < 500
-        ):
-            return AiInvalidRequest(message)
-        return AiProviderError(message)
+        if isinstance(exc, TimeoutError):  # asyncio.wait_for — the driver-enforced timeout
+            return AiTimeout(f"request exceeded the driver timeout: {exc}")
+        translated = _match(exc)
+        if translated is not None:
+            return translated
+        # any-llm wraps SDK errors but keeps the original — classify on it before giving up
+        original = getattr(exc, "original_exception", None)
+        if isinstance(original, Exception):
+            translated = _match(original)
+            if translated is not None:
+                return translated
+        return AiProviderError(f"{type(exc).__name__}: {exc}")
+
+
+def _match(exc: Exception) -> AiError | None:
+    """Classify by exception class name + status code — covers any-llm's own hierarchy and
+    the OpenAI-convention names the underlying provider SDKs raise, without importing either."""
+    name = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    message = f"{name}: {exc}"
+    if name in ("AuthenticationError", "MissingApiKeyError", "PermissionDeniedError") or status in (
+        401,
+        403,
+    ):
+        return AiAuthError(message)
+    if name == "RateLimitError" or status == 429:
+        return AiRateLimited(message)
+    if name in ("GatewayTimeoutError", "Timeout", "APITimeoutError"):
+        return AiTimeout(message)
+    if name in (
+        "ContentFilterError",
+        "ContentFilterFinishReasonError",
+        "ContentPolicyViolationError",
+    ):
+        return AiContentFiltered(message)
+    if name in (
+        "InvalidRequestError",
+        "ModelNotFoundError",
+        "UnsupportedParameterError",
+        "UnsupportedProviderError",
+        "ContextLengthExceededError",
+        "BadRequestError",
+        "NotFoundError",
+        "UnprocessableEntityError",
+    ) or (status is not None and 400 <= int(status) < 500):
+        return AiInvalidRequest(message)
+    return None

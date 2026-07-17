@@ -7,14 +7,14 @@ description = "One stable, typed, async API over many AI providers — plus an M
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
-keywords = ["arvel", "ai", "llm", "mcp", "gateway", "litellm", "openai"]
+keywords = ["arvel", "ai", "llm", "mcp", "gateway", "any-llm", "openai"]
 dependencies = ["arvel", "msgspec"]
 
 # Each heavy driver engine gets an extra — apps install only what they use, and
 # MissingExtraError points at the fix: uv add 'arvel-ai[<extra>]'. httpx is not
 # here: it's an arvel core dependency, so the openai_compatible driver always has it.
 [project.optional-dependencies]
-litellm = ["litellm"]
+any-llm = ["any-llm-sdk>=1.21"]
 
 # Installing this package auto-registers the provider — the host app edits nothing.
 [project.entry-points."arvel.providers"]
@@ -58,7 +58,7 @@ mypy_path = "src"
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["litellm.*", "jwt.*"]
+module = ["any_llm.*", "jwt.*"]
 ignore_missing_imports = true
 
 [tool.pyright]
@@ -76,15 +76,15 @@ include_external_packages = true
 # heavy engines never appear on the module import path — drivers lazy-import
 # them inside the method that uses them. List each engine you add here.
 # The anti-corruption layer, enforced: no engine type ever crosses into the
-# public surface — litellm exists only inside its own driver module,
+# public surface — any_llm exists only inside its own driver module,
 # the openai_compatible driver goes through arvel's Http client,
 # which wraps the engine.
 [[tool.importlinter.contracts]]
 name = "heavy engines stay out of the import path"
 type = "forbidden"
 source_modules = ["arvel_ai"]
-forbidden_modules = ["litellm", "httpx"]
+forbidden_modules = ["any_llm", "httpx"]
 # the ONLY sanctioned edge: the engine inside its own driver module, lazily
 ignore_imports = [
-    "arvel_ai.drivers.litellm -> litellm",
+    "arvel_ai.drivers.any_llm -> any_llm",
 ]

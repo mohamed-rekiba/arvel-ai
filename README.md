@@ -5,12 +5,12 @@ the [arvel](https://pypi.org/project/arvel/) framework.**
 
 Your app talks to one contract: `AI.chat`, `AI.stream`, `AI.structured`, `AI.embed`. Which provider
 actually serves the request — Anthropic, OpenAI, a LiteLLM proxy, a local vLLM or Ollama — is a
-config choice, not a code change. No provider SDK type (`httpx`, `litellm`) ever
+config choice, not a code change. No provider SDK type (`httpx`, `any_llm`) ever
 crosses into your code; the boundary is enforced by the import-linter, not just intended.
 
 ```bash
 uv add arvel-ai                 # gateway (openai_compatible + fake) + MCP server
-uv add 'arvel-ai[litellm]'      # + the LiteLLM driver: 100+ providers
+uv add 'arvel-ai[any-llm]'      # + the any-llm driver: many providers behind one contract
 ```
 
 > Need durable, multi-step orchestration? That's a separate package —
@@ -81,7 +81,7 @@ Keys live in environment variables only — config holds the env var *name*, nev
 
 - Python **3.14+**
 - **arvel** (installed with the package)
-- Optional engines: `arvel-ai[litellm]`; OIDC MCP auth needs `arvel[jwt]`
+- Optional engines: `arvel-ai[any-llm]`; OIDC MCP auth needs `arvel[jwt]`
 
 ## License
 
