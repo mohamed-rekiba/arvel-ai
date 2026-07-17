@@ -26,7 +26,7 @@ from .contracts import (
     ToolDef,
 )
 from .events import AiEmbedding, AiRequestFailed, AiRequestSending, AiResponseReceived
-from .settings import AiSettings, _as_kwargs
+from .settings import AiSettings, as_kwargs
 
 MessagesInput = str | list[Message] | ChatRequest
 T = TypeVar("T")
@@ -52,12 +52,12 @@ class AiManager(Manager):
     def create_openai_compatible_driver(self) -> Any:
         from .drivers.openai_compatible import OpenAICompatibleDriver
 
-        return OpenAICompatibleDriver(**_as_kwargs(self.settings().drivers.openai_compatible))
+        return OpenAICompatibleDriver(**as_kwargs(self.settings().drivers.openai_compatible))
 
     def create_litellm_driver(self) -> Any:
         from .drivers.litellm import LiteLLMDriver
 
-        return LiteLLMDriver(**_as_kwargs(self.settings().drivers.litellm))
+        return LiteLLMDriver(**as_kwargs(self.settings().drivers.litellm))
 
     # -- request building -------------------------------------------------------
 

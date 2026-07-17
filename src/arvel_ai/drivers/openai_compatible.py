@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from arvel.client import Client, PendingRequest, RequestFailed, RequestTimedOut, TransportFailed
 from arvel.contracts import HealthResult, HealthStatus
@@ -167,16 +167,18 @@ class OpenAICompatibleDriver:
                 except json.JSONDecodeError:
                     continue  # skip a partial/keepalive chunk rather than crash the stream
                 model = chunk.get("model", model)
-                choice = (chunk.get("choices") or [{}])[0]
+                choices: list[dict[str, Any]] = chunk.get("choices") or [{}]
+                choice = choices[0]
                 finish = choice.get("finish_reason") or finish
-                delta = choice.get("delta") or {}
+                delta: dict[str, Any] = choice.get("delta") or {}
                 if delta.get("content"):
                     text_parts.append(delta["content"])
                     yield TextDelta(text=delta["content"])
-                for tc in delta.get("tool_calls") or []:
+                raw_tool_calls: list[dict[str, Any]] = delta.get("tool_calls") or []
+                for tc in raw_tool_calls:
                     index = tc.get("index", 0)
                     slot = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
-                    fn = tc.get("function") or {}
+                    fn: dict[str, Any] = tc.get("function") or {}
                     tc_id, name = tc.get("id"), fn.get("name")
                     args_fragment = fn.get("arguments") or ""
                     slot["id"] = tc_id or slot["id"]
@@ -200,12 +202,12 @@ class OpenAICompatibleDriver:
                     arguments=decode_tool_arguments(slot["arguments"]),
                 )
             )
-        from ._openai_format import _FINISH_REASONS  # noqa: PLC0415
+        from ._openai_format import FINISH_REASONS  # noqa: PLC0415
 
         yield StreamEnd(
             response=ChatResponse(
                 content=content,
-                stop_reason=_FINISH_REASONS.get(finish, "other"),
+                stop_reason=FINISH_REASONS.get(finish, "other"),
                 model=model,
             )
         )
@@ -213,7 +215,7 @@ class OpenAICompatibleDriver:
     async def embed(self, request: EmbedRequest) -> EmbedResponse:
         payload = {"input": request.texts, "model": request.model or self.model}
         data = await self._post("/embeddings", payload)
-        usage = data.get("usage") or {}
+        usage: dict[str, Any] = data.get("usage") or {}
         return EmbedResponse(
             vectors=[item["embedding"] for item in data.get("data", [])],
             model=data.get("model", ""),
@@ -236,7 +238,7 @@ class OpenAICompatibleDriver:
         body = response.json()  # None when the body isn't valid JSON
         if not isinstance(body, dict):
             raise AiProviderError(f"provider sent a non-JSON body (HTTP {response.status()})")
-        return body
+        return cast(dict[str, Any], body)
 
     @staticmethod
     def _raise_for_status(status: int, body: str, retry_after: str | None = None) -> None:

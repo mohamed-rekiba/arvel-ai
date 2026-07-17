@@ -32,7 +32,10 @@ from .contracts import (
 )
 from .facade import AI
 
+__version__ = "0.1.0"  # x-release-please-version
+
 __all__ = [
+    "__version__",
     "AI",
     "AiAuthError",
     "AiCapabilityError",

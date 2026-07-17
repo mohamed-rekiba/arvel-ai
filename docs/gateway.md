@@ -270,5 +270,4 @@ are in the sections above and in each feature's own examples.
 ## See also
 
 - [MCP Server](mcp.md) — expose your app's functions to AI agents, with auth.
-- [Workflows](workflows.md) — durable, multi-step, signal-driven AI work.
 - [Configuration](configuration.md) — every `config("ai")` key and default.

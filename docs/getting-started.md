@@ -10,15 +10,14 @@ uv add arvel-ai
 
 That's the whole installation. `arvel-ai` ships an `arvel.providers` entry point, so its
 `AiServiceProvider` auto-registers with the host app — you don't touch `bootstrap/providers.py`. On
-boot it binds the `ai` and `ai.workflows` services, registers the AI gateway as a health-checked
+boot it binds the `ai` service, registers the AI gateway as a health-checked
 resource, and (when enabled) mounts the MCP routes.
 
 The default `openai_compatible` driver runs on arvel's own HTTP client, whose `httpx` engine is part
-of arvel core — nothing extra to install. Optional engines get extras:
+of arvel core — nothing extra to install. The LiteLLM driver is an optional extra:
 
 ```bash
 uv add 'arvel-ai[litellm]'      # LiteLLM driver: 100+ providers behind one contract
-uv add 'arvel-ai[temporal]'     # Temporal workflow driver
 ```
 
 ## 2. Configure
@@ -118,5 +117,4 @@ def _reset_ai():
 - [The Gateway](gateway.md) — the full `chat` / `stream` / `structured` / `embed` surface, tools,
   drivers, errors, observability, and testing.
 - [MCP Server](mcp.md) — expose your app's functions to AI agents.
-- [Workflows](workflows.md) — durable, multi-step, signal-driven AI work.
 - [Configuration](configuration.md) — every `config("ai")` key and its default.

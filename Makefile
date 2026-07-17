@@ -2,14 +2,14 @@
 RUN ?= uv run
 
 .DEFAULT_GOAL := help
-.PHONY: help sync lint format format-check typecheck imports test test-integration check pre-commit hooks clean
+.PHONY: help sync lint format format-check typecheck imports test test-live check pre-commit hooks clean
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-sync:  ## Create/refresh the dev environment (all extras + dev tools)
-	uv sync --all-extras
+sync:  ## Create/refresh the dev environment (dev tools; the litellm extra is faked in tests)
+	uv sync
 
 lint:  ## Ruff lint
 	$(RUN) ruff check .
@@ -20,17 +20,18 @@ format:  ## Ruff format (writes)
 format-check:  ## Ruff format (check only)
 	$(RUN) ruff format --check .
 
-typecheck:  ## Strict mypy
+typecheck:  ## Strict mypy + pyright
 	$(RUN) mypy src
+	$(RUN) pyright
 
-imports:  ## import-linter — keeps engines (litellm/httpx/temporalio) off the import path
+imports:  ## import-linter — keeps the engines (litellm/httpx) off the import path
 	PYTHONPATH=src $(RUN) lint-imports
 
-test:  ## pytest (hermetic; integration tiers are env-gated)
+test:  ## pytest (hermetic; the live-provider tier is env-gated)
 	$(RUN) pytest
 
-test-integration:  ## real-service tier — testcontainers spins up Temporal (needs Docker)
-	AI_INTEGRATION=1 $(RUN) --extra temporal pytest tests/test_workflow_temporal.py
+test-live:  ## real-provider tier — talks to an actual model (needs AI_LIVE_MODEL + a key)
+	$(RUN) pytest tests/test_live_providers.py
 
 check: lint format-check typecheck imports test  ## Everything CI runs
 

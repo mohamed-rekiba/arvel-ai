@@ -7,7 +7,7 @@ Pure functions over stdlib + msgspec — no engine imports here.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import msgspec
 
@@ -33,7 +33,7 @@ def decode_tool_arguments(raw: str) -> dict[str, Any]:
         raise AiProviderError(f"provider sent invalid tool-call arguments: {exc}") from exc
 
 
-_FINISH_REASONS: dict[str, StopReason] = {
+FINISH_REASONS: dict[str, StopReason] = {
     "stop": "end_turn",
     "length": "max_tokens",
     "tool_calls": "tool_use",
@@ -119,7 +119,7 @@ def to_openai_payload(request: ChatRequest, default_model: str | None) -> dict[s
 
 def _json_schema(schema: Any) -> dict[str, Any]:
     if isinstance(schema, dict):
-        return schema
+        return cast(dict[str, Any], schema)
     generated = msgspec.json.schema(schema)
     # inline the single $ref msgspec emits, since not every provider resolves $refs
     defs = generated.pop("$defs", {})
@@ -135,8 +135,9 @@ def parse_openai_response(payload: dict[str, Any], include_raw: bool = False) ->
     content: list[Any] = []
     if message.get("content"):
         content.append(Text(text=message["content"]))
-    for call in message.get("tool_calls") or []:
-        function = call.get("function", {})
+    raw_tool_calls: list[dict[str, Any]] = message.get("tool_calls") or []
+    for call in raw_tool_calls:
+        function: dict[str, Any] = call.get("function", {})
         arguments = function.get("arguments") or "{}"
         content.append(
             ToolCall(
@@ -147,15 +148,16 @@ def parse_openai_response(payload: dict[str, Any], include_raw: bool = False) ->
                 else arguments,
             )
         )
-    usage = payload.get("usage") or {}
+    usage: dict[str, Any] = payload.get("usage") or {}
+    cache_details: dict[str, Any] = usage.get("prompt_tokens_details") or {}
     return ChatResponse(
         content=content,
-        stop_reason=_FINISH_REASONS.get(choice.get("finish_reason") or "", "other"),
+        stop_reason=FINISH_REASONS.get(choice.get("finish_reason") or "", "other"),
         model=payload.get("model", ""),
         usage=Usage(
             input_tokens=usage.get("prompt_tokens", 0),
             output_tokens=usage.get("completion_tokens", 0),
-            cache_read_tokens=(usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
+            cache_read_tokens=cache_details.get("cached_tokens", 0),
         ),
         raw=payload if include_raw else None,
     )

@@ -15,7 +15,6 @@ ai = {
     "critical": False,
     "drivers": {...},
     "mcp": {...},
-    "workflows": {...},
 }
 ```
 
@@ -70,15 +69,6 @@ Provider keys use each provider's standard env var (`ANTHROPIC_API_KEY`, `OPENAI
 | `jwks_uri` | str \| None | `None` | JWKS URL; defaults to the issuer's standard certs URL |
 | `audience` | str \| None | `None` | expected `aud`; defaults to `public_url + path` |
 
-## `workflows`
-
-| Key | Type | Default | Meaning |
-|-----|------|---------|---------|
-| `default` | str | `"queue"` | `"queue"` / `"temporal"` / `"fake"` |
-| `drivers.temporal.target` | str | `"localhost:7233"` | Temporal frontend address |
-| `drivers.temporal.namespace` | str | `"default"` | Temporal namespace |
-| `drivers.temporal.task_queue` | str | `"arvel-ai"` | Temporal task queue |
-
 ## Reading config yourself
 
 `AiSettings` auto-loads and validates on instantiation, so you rarely touch it directly — the
@@ -103,4 +93,4 @@ settings.mcp.enabled             # False
 
 ## See also
 
-- [The Gateway](gateway.md) · [MCP Server](mcp.md) · [Workflows](workflows.md).
+- [The Gateway](gateway.md) · [MCP Server](mcp.md).

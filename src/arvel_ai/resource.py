@@ -7,6 +7,7 @@ if the AI backend is down the app still starts and serves everything else.
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 
 from arvel.contracts import HealthResult, HealthStatus
@@ -35,7 +36,7 @@ class AiResource:
             health = getattr(driver, "health", None)
             if callable(health):
                 result = health()
-                if hasattr(result, "__await__"):
+                if inspect.isawaitable(result):
                     result = await result
                 return result  # type: ignore[no-any-return]
         except Exception as exc:  # MissingExtraError, bad config, or a raising health()
@@ -51,5 +52,5 @@ class AiResource:
         close = getattr(driver, "aclose", None) or getattr(driver, "close", None)
         if callable(close):
             result = close()
-            if hasattr(result, "__await__"):
+            if inspect.isawaitable(result):
                 await result

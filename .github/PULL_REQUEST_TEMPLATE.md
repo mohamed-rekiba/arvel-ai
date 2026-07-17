@@ -1,11 +1,14 @@
+<!-- Title must follow Conventional Commits, e.g. `feat: add rate-limiter middleware` -->
+
 ## What & why
-<!-- What does this change, and why does it matter? Link the issue or spec. -->
+<!-- What does this change and why does it matter? Link the issue/spec. -->
 
 ## How to test
-<!-- The exact steps or commands a reviewer runs to verify it. -->
+<!-- Exact steps / commands a reviewer runs to verify. -->
 
 ## Checklist
-- [ ] `make check` is green locally (lint · format · types · imports · tests)
-- [ ] Tests added or updated, including negative/abuse cases where it's security-relevant
-- [ ] Docs / README updated if the behaviour or public API changed
-- [ ] No secrets committed
+- [ ] Conventional Commit title (drives release-please + CHANGELOG)
+- [ ] `make check` green locally (lint · format · types · imports · security · coverage ≥ 95%)
+- [ ] Tests added/updated (incl. abuse/negative cases where security-relevant)
+- [ ] Docs updated if behavior/public API changed
+- [ ] No secrets; no new high/critical `pip-audit` findings (or documented in SECURITY.md)

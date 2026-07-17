@@ -1,18 +1,20 @@
 # arvel-ai
 
-**One stable API over many AI providers — plus a secured MCP server and durable workflows — for
+**One stable API over many AI providers — plus a secured MCP server — for
 the [arvel](https://pypi.org/project/arvel/) framework.**
 
 Your app talks to one contract: `AI.chat`, `AI.stream`, `AI.structured`, `AI.embed`. Which provider
 actually serves the request — Anthropic, OpenAI, a LiteLLM proxy, a local vLLM or Ollama — is a
-config choice, not a code change. No provider SDK type (`httpx`, `litellm`, `temporalio`) ever
+config choice, not a code change. No provider SDK type (`httpx`, `litellm`) ever
 crosses into your code; the boundary is enforced by the import-linter, not just intended.
 
 ```bash
 uv add arvel-ai                 # gateway (openai_compatible + fake) + MCP server
 uv add 'arvel-ai[litellm]'      # + the LiteLLM driver: 100+ providers
-uv add 'arvel-ai[temporal]'     # + the Temporal workflow driver
 ```
+
+> Need durable, multi-step orchestration? That's a separate package —
+> [`arvel-workflow`](https://pypi.org/project/arvel-workflow/) (Temporal-backed) — not part of the gateway.
 
 Installing registers the provider automatically — `app.make("ai")` and the `AI` facade work with
 zero wiring.
@@ -38,10 +40,7 @@ copy = await AI.structured(ProductCopy, "Write copy for red wool socks")
   model is a one-line config edit, not a code hunt.
 - **A secured MCP server** — expose your app's functions to AI agents over the Model Context
   Protocol, with token or OIDC auth (RFC 8707 audience binding). Off by default.
-- **Durable workflows** — `Workflow.start`/`.signal`/`.status`, on a queue by default or **Temporal**
-  for retry-across-hours, human-in-the-loop flows.
-- **First-class fakes** — `AI.fake()` / `Workflow.fake()` test AI code with no network, the same way
-  you test mail.
+- **First-class fakes** — `AI.fake()` tests AI code with no network, the same way you test mail.
 - **A health-checked resource** — the gateway reports on `/health` and the startup log via a real
   probe: a wrong or missing key shows as `failed`, not a false `ok`.
 
@@ -76,14 +75,13 @@ Keys live in environment variables only — config holds the env var *name*, nev
 | [Getting Started](docs/getting-started.md) | install → configure → first call → first test, end to end |
 | [The Gateway](docs/gateway.md) | `chat`/`stream`/`structured`/`embed`, tools, drivers, aliases, errors, observability, testing |
 | [MCP Server](docs/mcp.md) | expose tools to agents, token & OIDC auth, the security model |
-| [Workflows](docs/workflows.md) | `@workflow`, `start`/`signal`/`status`, the queue vs Temporal engines |
 | [Configuration](docs/configuration.md) | the complete `config("ai")` reference — every key and default |
 
 ## Requirements
 
 - Python **3.14+**
 - **arvel** (installed with the package)
-- Optional engines: `arvel-ai[litellm]`, `arvel-ai[temporal]`; OIDC MCP auth needs `arvel[jwt]`
+- Optional engines: `arvel-ai[litellm]`; OIDC MCP auth needs `arvel[jwt]`
 
 ## License
 

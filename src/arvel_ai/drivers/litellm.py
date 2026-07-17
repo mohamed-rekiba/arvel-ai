@@ -37,7 +37,7 @@ from arvel_ai.contracts import (
 )
 
 from ._openai_format import (
-    _FINISH_REASONS,
+    FINISH_REASONS,
     decode_tool_arguments,
     parse_openai_response,
     to_openai_payload,
@@ -66,7 +66,10 @@ class LiteLLMDriver:
 
     def _litellm(self) -> Any:
         try:
-            import litellm
+            # litellm is an optional extra, deliberately not installed in dev (see module
+            # docstring) — pyright can't see a package that isn't in the environment, and no
+            # annotation fixes that; the import itself is erased to Any right below anyway.
+            import litellm  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
             raise MissingExtraError("litellm", package="arvel-ai") from exc
         return litellm
@@ -124,19 +127,23 @@ class LiteLLMDriver:
                 **payload, stream=True, timeout=self.timeout, num_retries=self.max_retries
             )
             async for chunk in stream:
-                data = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)
+                data: dict[str, Any] = (
+                    chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)
+                )
                 model = data.get("model") or model
-                choice = (data.get("choices") or [{}])[0]
+                choices: list[dict[str, Any]] = data.get("choices") or [{}]
+                choice = choices[0]
                 finish = choice.get("finish_reason") or finish
-                delta = choice.get("delta") or {}
+                delta: dict[str, Any] = choice.get("delta") or {}
                 content = delta.get("content")
                 if content:
                     text_parts.append(content)
                     yield TextDelta(text=content)
-                for tc in delta.get("tool_calls") or []:
+                raw_tool_calls: list[dict[str, Any]] = delta.get("tool_calls") or []
+                for tc in raw_tool_calls:
                     index = tc.get("index", 0)
                     slot = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
-                    fn = tc.get("function") or {}
+                    fn: dict[str, Any] = tc.get("function") or {}
                     tc_id, name = tc.get("id"), fn.get("name")
                     args_fragment = fn.get("arguments") or ""
                     slot["id"] = tc_id or slot["id"]
@@ -157,7 +164,7 @@ class LiteLLMDriver:
         yield StreamEnd(
             response=ChatResponse(
                 content=content_parts,
-                stop_reason=_FINISH_REASONS.get(finish, "other"),
+                stop_reason=FINISH_REASONS.get(finish, "other"),
                 model=model,
             )
         )
@@ -171,7 +178,7 @@ class LiteLLMDriver:
         except Exception as exc:  # noqa: BLE001
             raise self._translate(exc) from exc
         data = result.model_dump() if hasattr(result, "model_dump") else dict(result)
-        usage = data.get("usage") or {}
+        usage: dict[str, Any] = data.get("usage") or {}
         return EmbedResponse(
             vectors=[item["embedding"] for item in data.get("data", [])],
             model=data.get("model", ""),

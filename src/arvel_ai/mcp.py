@@ -27,9 +27,10 @@ import inspect
 import os
 import types
 from collections.abc import Callable, Mapping
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Union, cast, get_args, get_origin
 
 import anyio
+import anyio.to_thread
 
 from .settings import McpAuthSettings, McpSettings
 
@@ -80,7 +81,10 @@ def _check_type(key: str, value: Any, schema: dict[str, Any]) -> None:
     if not isinstance(value, py_type):
         raise ValueError(f"argument {key!r}: expected {expected}")
     if expected == "array" and "items" in schema and isinstance(value, list):
-        for item in value:  # already a list; the guard just re-narrows it for mypy
+        # isinstance narrows value to list[Unknown]; cast to list[object] (not list[Any], which
+        # mypy would flag as a redundant cast here) since the element type is only known once
+        # _check_type validates each item below
+        for item in cast(list[object], value):
             _check_type(key, item, schema["items"])
 
 
@@ -286,7 +290,7 @@ class McpServer:
         if method == "tools/list":
             return self._result(request_id, {"tools": self.registry.descriptors()})
         if method == "tools/call":
-            params = payload.get("params") or {}
+            params: dict[str, Any] = payload.get("params") or {}
             try:
                 value = await self.registry.call(
                     params.get("name", ""), params.get("arguments") or {}

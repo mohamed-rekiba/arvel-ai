@@ -64,12 +64,12 @@ class ChatRequest(msgspec.Struct):
     messages: list[Message]
     model: str | None = None  # concrete id (aliases resolve in the manager)
     system: str | None = None
-    tools: list[ToolDef] = msgspec.field(default_factory=list)
+    tools: list[ToolDef] = msgspec.field(default_factory=list[ToolDef])
     tool_choice: str = "auto"  # "auto" | "none" | "required" | <tool name>
     response_schema: Any = None  # type[msgspec.Struct] | JSON-schema dict
     max_tokens: int | None = None
-    stop: list[str] = msgspec.field(default_factory=list)
-    options: dict[str, Any] = msgspec.field(default_factory=dict)  # provider passthrough
+    stop: list[str] = msgspec.field(default_factory=list[str])
+    options: dict[str, Any] = msgspec.field(default_factory=dict[str, Any])  # provider passthrough
 
 
 class EmbedRequest(msgspec.Struct):

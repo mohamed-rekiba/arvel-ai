@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from arvel.kernel import ServiceProvider
 
 from .commands import cli
 from .manager import AiManager
 from .settings import AiSettings
-from .workflows.manager import WorkflowManager
+
+if TYPE_CHECKING:
+    from arvel.contracts import Container
 
 
 def _import_tools(base_path: str, tools_dir: str, modules: list[str]) -> None:
     """Load the app's MCP tools so their ``@mcp_tool`` decorators run. Autoloads every ``*.py``
-    under ``tools_dir`` (default ``app/mcp_tools/``, like Laravel discovers app/Listeners —
-    DR-0045/0046), then imports any explicit ``modules`` from config as an override/addition.
+    under ``tools_dir`` (default ``app/mcp_tools/``, a convention folder like ``app/listeners``
+    — DR-0045/0046), then imports any explicit ``modules`` from config as an override/addition.
     The folder is loaded **by path** (like arvel's ``config/*.py`` and listener discovery), so it
     doesn't depend on ``base_path`` being on ``sys.path``. Tools self-register when their module
     executes — no reflection needed."""
@@ -38,8 +41,10 @@ class AiServiceProvider(ServiceProvider):
         # Config defaults are the typed AiSettings field defaults (the framework
         # Settings pattern) — no merge_config_from, no DEFAULTS dict; the host
         # app's config("ai") section overrides them.
-        self.app.singleton("ai", lambda c: AiManager(self.app))
-        self.app.singleton("ai.workflows", lambda c: WorkflowManager(self.app))
+        def make_ai(c: Container) -> AiManager:
+            return AiManager(self.app)
+
+        self.app.singleton("ai", make_ai)
 
         # MCP server: opt-in via config. This lives in register() DELIBERATELY:
         # route files load right after provider registration, while the async

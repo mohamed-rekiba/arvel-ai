@@ -51,23 +51,8 @@ class McpSettings(msgspec.Struct):
     path: str = "/mcp"
     public_url: str | None = None  # canonical https URL (required when enabled)
     tools_dir: str = "app/mcp_tools"  # autoloaded folder — every *.py registers its @mcp_tools
-    tools: list[str] = msgspec.field(default_factory=list)  # explicit extra modules (override)
+    tools: list[str] = msgspec.field(default_factory=list[str])  # explicit extra modules (override)
     auth: McpAuthSettings = msgspec.field(default_factory=McpAuthSettings)
-
-
-class TemporalSettings(msgspec.Struct):
-    target: str = "localhost:7233"
-    namespace: str = "default"
-    task_queue: str = "arvel-ai"
-
-
-class WorkflowDriverSettings(msgspec.Struct):
-    temporal: TemporalSettings = msgspec.field(default_factory=TemporalSettings)
-
-
-class WorkflowSettings(msgspec.Struct):
-    default: str = "queue"  # "queue" | "temporal" | "fake"
-    drivers: WorkflowDriverSettings = msgspec.field(default_factory=WorkflowDriverSettings)
 
 
 class AiSettings(Settings):
@@ -77,14 +62,13 @@ class AiSettings(Settings):
 
     default: str = "litellm"  # which driver AI.chat() dispatches to
     # model aliases so callers say AI.chat(..., model="fast") and ops map it to a real id here
-    models: dict[str, str] = msgspec.field(default_factory=dict)
+    models: dict[str, str] = msgspec.field(default_factory=dict[str, str])
     drivers: DriverSettings = msgspec.field(default_factory=DriverSettings)
     include_raw: bool = False
     critical: bool = False  # AiResource: does an AI outage abort boot?
     mcp: McpSettings = msgspec.field(default_factory=McpSettings)
-    workflows: WorkflowSettings = msgspec.field(default_factory=WorkflowSettings)
 
 
-def _as_kwargs(struct: msgspec.Struct) -> dict[str, Any]:
+def as_kwargs(struct: msgspec.Struct) -> dict[str, Any]:
     """A driver settings struct → kwargs for the driver constructor."""
     return {f: getattr(struct, f) for f in struct.__struct_fields__}
