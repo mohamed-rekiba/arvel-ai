@@ -14,12 +14,25 @@ boot it binds the `ai` service, registers the AI gateway as a health-checked
 resource, and (when enabled) mounts the MCP routes.
 
 The default `openai_compatible` driver runs on arvel's own HTTP client, whose `httpx` engine is part
-of arvel core — nothing extra to install. The any-llm driver is an optional extra:
+of arvel core — nothing extra to install. The any-llm driver is an optional extra — **one
+extra named after your provider** installs the driver *and* that provider's SDK:
 
 ```bash
-uv add 'arvel-ai[any-llm]'           # any-llm driver: many providers behind one contract
-uv add 'any-llm-sdk[anthropic]'      # + your provider's SDK (any-llm ships them as extras)
+uv add 'arvel-ai[anthropic]'      # any-llm driver + the Anthropic SDK, in one extra
 ```
+
+Supported provider extras (mirroring [any-llm](https://docs.mozilla.ai/any-llm/)'s own):
+
+> `anthropic` · `atlascloud` · `azure` · `azureanthropic` · `azureopenai` · `bedrock` ·
+> `cascadia` · `cerebras` · `cohere` · `dashscope` · `databricks` · `deepinfra` · `deepseek` ·
+> `fireworks` · `gemini` · `github` · `gmi` · `groq` · `huggingface` · `inception` · `llama` ·
+> `llamacpp` · `llamafile` · `lmstudio` · `minimax` · `mistral` · `moonshot` · `mzai` ·
+> `nebius` · `neosantara` · `ollama` · `openai` · `openrouter` · `otari` · `perplexity` ·
+> `portkey` · `qiniu` · `requesty` · `sagemaker` · `sambanova` · `telnyx` · `together` ·
+> `vertexai` · `vertexaianthropic` · `vllm` · `voyage` · `watsonx` · `xai` · `zai`
+
+Two escape hatches: `arvel-ai[any-llm]` installs the bare any-llm SDK with no provider SDK,
+and `arvel-ai[all]` installs every provider.
 
 ## 2. Configure
 
@@ -47,9 +60,9 @@ ai = {
 ```
 
 > **Set `default` explicitly, as above.** The package's *built-in* default driver is `any_llm`,
-> which needs `uv add 'arvel-ai[any-llm]'`. A base install with no config would hit a missing-extra
-> error on the first call; `"default": "openai_compatible"` uses the driver that ships with the base
-> install.
+> which needs a provider extra (`uv add 'arvel-ai[anthropic]'`). A base install with no config
+> would hit a missing-extra error on the first call; `"default": "openai_compatible"` uses the
+> driver that ships with the base install.
 
 Put the key in your environment — never in config:
 
@@ -60,8 +73,9 @@ AI_API_KEY=sk-...
 
 > **Any OpenAI-compatible endpoint works:** a provider directly
 > (`https://api.anthropic.com/v1`, `https://api.openai.com/v1`), a LiteLLM proxy, or a local
-> vLLM/Ollama server. For the full any-llm provider matrix, install `arvel-ai[any-llm]` and set
-> `"default": "any_llm"` (model ids become `provider:model`, e.g. `anthropic:claude-haiku-4-5`) —
+> vLLM/Ollama server. For the full any-llm provider matrix, install your provider's extra
+> (`uv add 'arvel-ai[anthropic]'`, see the list above) and set `"default": "any_llm"` (model ids
+> become `provider:model`, e.g. `anthropic:claude-haiku-4-5`) —
 > see [Drivers](gateway.md#drivers--model-aliases).
 
 ## 3. Make a call

@@ -84,12 +84,12 @@ settings.mcp.enabled             # False
 
 ## Common mistakes & gotchas
 
-- **The built-in `default` is `any_llm`**, which needs `uv add 'arvel-ai[any-llm]'`. Set
-  `"default": "openai_compatible"` to use the base-install driver (see
-  [Getting Started](getting-started.md)).
+- **The built-in `default` is `any_llm`**, which needs a provider extra — one extra installs the
+  driver and that provider's SDK, e.g. `uv add 'arvel-ai[anthropic]'` (full list in
+  [Getting Started](getting-started.md)). Set `"default": "openai_compatible"` to use the
+  base-install driver instead.
 - **any-llm model ids are `provider:model`** (colon, not slash) — `anthropic:claude-haiku-4-5` —
-  and the provider's own SDK must be installed; any-llm ships them as extras, e.g.
-  `uv add 'any-llm-sdk[anthropic]'`.
+  and the provider prefix must match the extra you installed.
 - **Secrets are env-var *names* here, not values** — `api_key_env`, `token_env`.
 - **`mcp.public_url` is required when `mcp.enabled`** — the metadata document and 401 challenge are
   built from it.

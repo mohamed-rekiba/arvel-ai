@@ -150,8 +150,9 @@ ai = {
   `api_key_env`.
 - **`any_llm`** — the any-llm SDK: many providers, `provider:model` ids (colon-separated,
   e.g. `anthropic:claude-haiku-4-5`), keys via each provider's own env var (`ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`, …). Needs `uv add 'arvel-ai[any-llm]'` plus your provider's SDK
-  (`uv add 'any-llm-sdk[anthropic]'`).
+  `OPENAI_API_KEY`, …). One extra installs the driver and that provider's SDK:
+  `uv add 'arvel-ai[anthropic]'` — full provider list in
+  [Getting Started](getting-started.md).
 - **`fake`** — the test double (see [Testing](#testing)).
 
 `models` is the churn shield: apps say `model="fast"`; a provider retiring a model is one config

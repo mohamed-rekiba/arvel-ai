@@ -175,6 +175,12 @@ async def test_chat_does_not_retry_non_retryable_errors() -> None:
     assert fake.completion_calls == 1
 
 
+def test_missing_extra_hint_names_the_model_provider() -> None:
+    # extras mirror any-llm's provider names, so the model's provider prefix is the fix
+    assert AnyLLMDriver(model="anthropic:claude-x")._extra_name() == "anthropic"
+    assert AnyLLMDriver(model=None)._extra_name() == "any-llm"
+
+
 def test_translate_unwraps_the_original_exception() -> None:
     wrapped = ProviderError("provider blew up", AuthenticationError("bad key"))
     assert isinstance(AnyLLMDriver._translate(wrapped), AiAuthError)

@@ -10,8 +10,11 @@ crosses into your code; the boundary is enforced by the import-linter, not just 
 
 ```bash
 uv add arvel-ai                 # gateway (openai_compatible + fake) + MCP server
-uv add 'arvel-ai[any-llm]'      # + the any-llm driver: many providers behind one contract
+uv add 'arvel-ai[anthropic]'    # + the any-llm driver and your provider's SDK, one extra
 ```
+
+One extra per provider — `anthropic`, `openai`, `gemini`, `bedrock`, `mistral`, `ollama`,
+`groq`, … ([full list](docs/getting-started.md)); `arvel-ai[all]` installs every provider.
 
 > Need durable, multi-step orchestration? That's a separate package —
 > [`arvel-workflow`](https://pypi.org/project/arvel-workflow/) (Temporal-backed) — not part of the gateway.
@@ -81,7 +84,8 @@ Keys live in environment variables only — config holds the env var *name*, nev
 
 - Python **3.14+**
 - **arvel** (installed with the package)
-- Optional engines: `arvel-ai[any-llm]`; OIDC MCP auth needs `arvel[jwt]`
+- Optional engines: `arvel-ai[<provider>]` (the any-llm driver — one extra per provider, see
+  [Getting Started](docs/getting-started.md)); OIDC MCP auth needs `arvel[jwt]`
 
 ## License
 

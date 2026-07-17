@@ -2,11 +2,11 @@
 
 any-llm (Mozilla AI) normalizes every provider to the OpenAI format, so the request/response
 translation is the same code the openai_compatible driver uses. The any_llm import lives only
-in this module and is loaded lazily, so an app that doesn't use it never pays for it; install
-it with `uv add 'arvel-ai[any-llm]'` plus your provider's SDK (any-llm ships those as extras,
-e.g. `uv add 'any-llm-sdk[anthropic]'`). Model ids are `provider:model` colon-separated
-(`anthropic:claude-haiku-4-5`), and each provider's key comes from its own env var
-(ANTHROPIC_API_KEY, OPENAI_API_KEY, and so on).
+in this module and is loaded lazily, so an app that doesn't use it never pays for it; one
+extra installs the driver plus your provider's SDK — `uv add 'arvel-ai[anthropic]'` (arvel-ai
+mirrors any-llm's provider extras; `any-llm` is the bare SDK, `all` every provider). Model
+ids are `provider:model` colon-separated (`anthropic:claude-haiku-4-5`), and each provider's
+key comes from its own env var (ANTHROPIC_API_KEY, OPENAI_API_KEY, and so on).
 
 any-llm exposes no timeout or retry knobs, so both live here: every call runs under
 `asyncio.wait_for` (per-chunk while streaming), and chat/embed retry retryable failures
@@ -71,6 +71,14 @@ class AnyLLMDriver:
         self.max_retries = max_retries
         self.include_raw = include_raw
 
+    def _extra_name(self) -> str:
+        """The arvel-ai extra that fixes a missing engine. Extras mirror any-llm's provider
+        names, so the provider prefix of the configured model IS the extra to install
+        (`anthropic:claude-...` -> `arvel-ai[anthropic]`); bare SDK when no model names one."""
+        if self.model and ":" in self.model:
+            return self.model.split(":", 1)[0]
+        return "any-llm"
+
     def _any_llm(self) -> Any:
         try:
             # any-llm is an optional extra, deliberately not installed in dev (see module
@@ -78,7 +86,7 @@ class AnyLLMDriver:
             # annotation fixes that; the import itself is erased to Any right below anyway.
             import any_llm  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
-            raise MissingExtraError("any-llm", package="arvel-ai") from exc
+            raise MissingExtraError(self._extra_name(), package="arvel-ai") from exc
         return any_llm
 
     async def health(self) -> HealthResult:
