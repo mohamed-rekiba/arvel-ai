@@ -293,7 +293,7 @@ wheels = [
 
 [[package]]
 name = "arvel"
-version = "0.66.0"
+version = "0.66.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -313,9 +313,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "whenever" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/09/38/b2831b9ff2fa4e38693d6dfbdb21420b0c1f9ded1473c23a0fee30569e14/arvel-0.66.0.tar.gz", hash = "sha256:0521f2b873e416fed0dae42417aa46213c6a57795ea428bd00b9ba29de100f29", size = 1487177, upload-time = "2026-07-17T02:28:05.077Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/8e/98edc2248befcc7dc62c417e0053beaa2bdb9fcf3b4ae133595c696a9641/arvel-0.66.1.tar.gz", hash = "sha256:c2db99770ea89c0eebfd6ec34e8ac914d3b0fb897ac85b6e4a3878b6e5210611", size = 1490443, upload-time = "2026-07-17T22:33:47.24Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/1b/ef2c54518d847e91f975e17352b483b3774cd01019555eea765f2a1176ae/arvel-0.66.0-py3-none-any.whl", hash = "sha256:cbd514989ed14f7c737427be2dfcb3cc3d0bb9bc2a0996a1eabb74a85b8322c4", size = 627475, upload-time = "2026-07-17T02:28:02.573Z" },
+    { url = "https://files.pythonhosted.org/packages/30/b4/75a8a44317ea589d52a19c5dc3eb2a24e51365f4c2085803c46fff3f031b/arvel-0.66.1-py3-none-any.whl", hash = "sha256:1cf6ac0f1b95dc35d0e75f563cbcf6b644fb817378360c24946ebbcacaafb57f", size = 631231, upload-time = "2026-07-17T22:33:44.755Z" },
 ]
 
 [[package]]
